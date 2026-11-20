@@ -103,9 +103,10 @@ namespace ArchiGungeon.GungeonEventHandlers
             { "6c43fddfd401456c916089fdd1c99b1c", CountStats.Floor4Clears },
 
   
-            //floor 5
-            { "b98b10fca77d469e80fb45f3c5badec5", CountStats.Floor5Clears },
-            { "880bbe4ce1014740ba6b4e2ea521e49d", CountStats.Floor5Clears },
+            //floor 5 - the High Dragun and Advanced Dragun. These were the Pilot's and Robot's past bosses
+            // (b98b10..., 880bbe..., also in PastKillsGuids), so the Dragun never counted as a Forge clear.
+            { "465da2bb086a4a88a803f79fe3a27677", CountStats.Floor5Clears },
+            { "05b8afe0b6cc4fffa9dc6036fa24c8ec", CountStats.Floor5Clears },
 
             //hell
             { "7c5d5f09911e49b78ae644d2b50ff3bf", CountStats.FloorHellClears},
@@ -259,6 +260,9 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             StartPlayerControllerEventListens(controller);
 
+            // A replaced player object (Paradox Mode swap) needs its health/armor/blank upgrades again
+            PersistentUpgrades.ApplyPending();
+
             return;
         }
 
@@ -398,6 +402,8 @@ namespace ArchiGungeon.GungeonEventHandlers
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Boss GUID: {haver.aiActor.EnemyGuid}");
             string enemyGuid = haver.aiActor.EnemyGuid;
 
+            BossChecks.OnBossKilled(enemyGuid);
+
             if(PastKillsGuids.Contains(enemyGuid))
             {
                 SaveDataManagement.AddToCountSaveDataEntry(CountStats.PastKills, 1);
@@ -415,6 +421,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 if(triggerTwinKills == 2)
                 {
                     SaveDataManagement.AddToCountSaveDataEntry(CountStats.Floor1Clears, 1);
+                    BossChecks.OnTriggerTwinsDefeated();
                 }
             }
 
@@ -425,6 +432,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 if (killPillarKills == 4)
                 {
                     SaveDataManagement.AddToCountSaveDataEntry(CountStats.Floor4Clears, 1);
+                    BossChecks.OnKillPillarsDefeated();
                 }
             }
 
@@ -618,8 +626,8 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnKilledEnemy(PlayerController playerController, HealthHaver enemy)
         {
-            string enemyName = enemy.name;
-            // TODO: add enemy headhunter check
+            // Enemy Kills checks (cumulative across runs, saved locally)
+            SaveDataManagement.AddToCountSaveDataEntry(CountStats.EnemyKills, 1);
             return;
         }
 

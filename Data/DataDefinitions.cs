@@ -49,7 +49,8 @@ namespace ArchiGungeon.Data
         PastHunter,
         PastRobot,
         PastBullet,
-        PastKills
+        PastKills,
+        EnemyKills
     }
     #endregion
 
