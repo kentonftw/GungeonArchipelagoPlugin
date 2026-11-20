@@ -29,6 +29,8 @@ namespace ArchiGungeon.ItemArchipelago
         public static bool ChamberLocksEnabled { get; private set; }
         public static bool BulletPartsEnabled { get; private set; }
         public static bool SellCreepsFavorEnabled { get; private set; }
+        public static bool AllowGlitchChestSkips { get; private set; }
+        public static bool AllowTeleporterSkips { get; private set; }
 
         private static bool bulletGivenThisRun = false;
 
@@ -62,6 +64,10 @@ namespace ArchiGungeon.ItemArchipelago
 
             // Blacksmith / Ark: report the Bullet as built only once all four AP parts are received
             AddHook(typeof(GameStatsManager).GetMethod("GetFlag", instance, null, new Type[] { typeof(GungeonFlags) }, null), "GetFlagHook");
+
+            // Floor skips that go around the elevator (optional, see AllowGlitchChestSkips / AllowTeleporterSkips)
+            AddHook(typeof(Chest).GetMethod("Open", instance, null, new Type[] { typeof(PlayerController) }, null), "ChestOpenHook");
+            AddHook(typeof(TeleporterPrototypeItem).GetMethod("DoEffect", instance, null, new Type[] { typeof(PlayerController) }, null), "TeleporterDoEffectHook");
         }
 
         private static void AddHook(MethodInfo target, string hookName)
@@ -80,6 +86,8 @@ namespace ArchiGungeon.ItemArchipelago
             ChamberLocksEnabled = ReadFlag(slotData, "ChamberAccessLocks");
             BulletPartsEnabled = ReadFlag(slotData, "BulletParts");
             SellCreepsFavorEnabled = ReadFlag(slotData, "SellCreepsFavor");
+            AllowGlitchChestSkips = ReadFlag(slotData, "AllowGlitchChestSkips");
+            AllowTeleporterSkips = ReadFlag(slotData, "AllowTeleporterSkips");
 
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState,
                 $"Progression options - chamber locks: {ChamberLocksEnabled}, bullet parts: {BulletPartsEnabled}, sell creep's favor: {SellCreepsFavorEnabled}");
@@ -361,6 +369,66 @@ namespace ArchiGungeon.ItemArchipelago
                 return 0;
             }
             return Math.Min(index, count - 1);
+        }
+
+        #endregion
+
+        #region Glitch chests and Teleporter Prototype
+
+        private static readonly FieldInfo glitchChestField =
+            typeof(Chest).GetField("m_isGlitchChest", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static bool IsNextFloorLocked()
+        {
+            return ChamberAccessCount < AccessNeededToLeaveCurrentFloor();
+        }
+
+        public static void ChestOpenHook(Action<Chest, PlayerController> orig, Chest self, PlayerController player)
+        {
+            // A Glitch Chest loads the next floor instead of opening. While that floor is locked, open it as a normal chest.
+            if (!AllowGlitchChestSkips && glitchChestField != null && player != null
+                && (bool)glitchChestField.GetValue(self) && IsNextFloorLocked())
+            {
+                glitchChestField.SetValue(self, false);
+                ShowMessage("Glitch chest can't skip a locked chamber");
+            }
+
+            orig(self, player);
+        }
+
+        public static void TeleporterDoEffectHook(Action<TeleporterPrototypeItem, PlayerController> orig, TeleporterPrototypeItem self, PlayerController user)
+        {
+            if (AllowTeleporterSkips || GameManager.Instance.Dungeon == null)
+            {
+                orig(self, user);
+                return;
+            }
+
+            float nextFloorChance = self.ChanceToGoToNextFloor;
+            float secretFloorChance = self.ChanceToGoToSecretFloor;
+
+            if (IsNextFloorLocked())
+            {
+                self.ChanceToGoToNextFloor = 0f;
+            }
+
+            // From the Gungeon Proper the secret-floor warp goes to the Abbey, which normally needs the Old Crest.
+            // (From the Keep it goes to the Oubliette, which is always open.)
+            bool onGungeonProper = (int)GameManager.Instance.Dungeon.tileIndices.tilesetId == 1;
+            if (onGungeonProper && SessionHandler.CountReceivedItem(OldCrestID) == 0)
+            {
+                self.ChanceToGoToSecretFloor = 0f;
+            }
+
+            try
+            {
+                orig(self, user);
+            }
+            finally
+            {
+                self.ChanceToGoToNextFloor = nextFloorChance;
+                self.ChanceToGoToSecretFloor = secretFloorChance;
+            }
         }
 
         #endregion
