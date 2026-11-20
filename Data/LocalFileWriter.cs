@@ -21,9 +21,25 @@ namespace ArchiGungeon.Data
         private static bool isSavePathInitialized = false;
         private static string SaveFilepath { get; set; }
 
+        // Slot names can contain characters Windows doesn't allow in file names (: ? / etc.), and the
+        // unsanitized name made writing the save throw. Valid names produce the same file name as before.
+        private static string BuildSaveFileName(string playerName, string seedString)
+        {
+            string safeName = playerName ?? string.Empty;
+            foreach (char invalid in Path.GetInvalidFileNameChars())
+            {
+                safeName = safeName.Replace(invalid, '_');
+            }
+
+            string seed = seedString ?? string.Empty;
+            string seedPart = seed.Length > 8 ? seed.Substring(0, 8) : seed;
+
+            return SAVE_DATA_FILEPREFIX + safeName + seedPart + ".json";
+        }
+
         public static bool InitSaveFilenameAndCheckPrevious(string playerName, string seedString)
         {
-            string fileName = SAVE_DATA_FILEPREFIX + playerName + seedString.Substring(0,8) + ".json";
+            string fileName = BuildSaveFileName(playerName, seedString);
             SaveFilepath = Path.Combine(ConfigPath, fileName);
 
             isSavePathInitialized = true;
@@ -49,7 +65,7 @@ namespace ArchiGungeon.Data
         {
             if(playerName != "" && seedString != "")
             {
-                string fileName = SAVE_DATA_FILEPREFIX + playerName + seedString.Substring(0, 8) +".json";
+                string fileName = BuildSaveFileName(playerName, seedString);
                 SaveFilepath = Path.Combine(ConfigPath, fileName);
             }
 

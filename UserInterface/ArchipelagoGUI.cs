@@ -258,6 +258,11 @@ namespace ArchiGungeon.UserInterface
                 base.GUI[1].Focus();
             }
 
+            if (IsOpen)
+            {
+                ApplyInputLockToCurrentPlayers();
+            }
+
             if (!IsHoldingInput)
             {
                 IsHoldingInput = true;
@@ -271,8 +276,62 @@ namespace ArchiGungeon.UserInterface
             base.OnOpen();
             base.GUI[1].Focus();
             IsOpen = true;
+            SetPlayerInputLock(true);
 
             return;
+        }
+
+        // While the menu is open, typing shouldn't also move, shoot, dodge or use items.
+        // Uses the game's own input override (the same lock cutscenes use), keyed by this reason.
+        private const string InputLockReason = "ArchipelagoConsole";
+        // Players currently holding our lock. Tracked per player because the game can replace the player
+        // object while the menu is open (Paradox Mode character swaps), and the new one needs the lock too.
+        private static readonly List<PlayerController> lockedPlayers = new List<PlayerController>();
+
+        private static void SetPlayerInputLock(bool locked)
+        {
+            if (locked)
+            {
+                ApplyInputLockToCurrentPlayers();
+                return;
+            }
+
+            foreach (PlayerController player in lockedPlayers)
+            {
+                if (player != null)
+                {
+                    player.ClearInputOverride(InputLockReason);
+                }
+            }
+
+            if (lockedPlayers.Count > 0)
+            {
+                UnityEngine.Debug.Log($"[ArchipelaGun] Menu closed, player input unlocked ({lockedPlayers.Count} player(s))");
+            }
+            lockedPlayers.Clear();
+        }
+
+        // Called on open and every frame while open, so a newly spawned player is locked as well
+        private static void ApplyInputLockToCurrentPlayers()
+        {
+            if (GameManager.Instance == null || GameManager.Instance.AllPlayers == null)
+            {
+                return;
+            }
+
+            lockedPlayers.RemoveAll(player => player == null);
+
+            foreach (PlayerController player in GameManager.Instance.AllPlayers)
+            {
+                if (player == null || lockedPlayers.Contains(player))
+                {
+                    continue;
+                }
+
+                player.SetInputOverride(InputLockReason);
+                lockedPlayers.Add(player);
+                UnityEngine.Debug.Log($"[ArchipelaGun] Menu open, player input locked: {player.name} (input state now {player.CurrentInputState})");
+            }
         }
 
 
@@ -288,6 +347,7 @@ namespace ArchiGungeon.UserInterface
             base.OnClose();
             OnMenuClose.Invoke();
             IsOpen = false;
+            SetPlayerInputLock(false);
 
             return;
         }

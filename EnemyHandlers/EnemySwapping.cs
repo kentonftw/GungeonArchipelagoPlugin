@@ -82,7 +82,7 @@ namespace ArchiGungeon.EnemyHandlers
                 currentShuffleCount++;
                 string newID = ShuffledEnemyGUIDs[currentID];
                 Vector2 spawnPos = actor.CenterPosition;
-                RoomHandler roomHandler = actor.parentRoom;
+                RoomHandler roomHandler = actor.ParentRoom; // parentRoom is private in the real game
 
                 ArchDebugPrint.DebugLog(DebugCategory.EnemyRandomization, "Current: " + EnemyDatabase.GetOrLoadByGuid(currentID));
                 ArchDebugPrint.DebugLog(DebugCategory.EnemyRandomization, "Swapped to: " + EnemyDatabase.GetOrLoadByGuid(newID));

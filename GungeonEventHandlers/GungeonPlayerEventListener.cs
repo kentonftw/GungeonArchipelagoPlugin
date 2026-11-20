@@ -169,6 +169,12 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         
 
+        // m_baseParentShop is private in the real game. The project compiles against a publicized copy, but
+        // naming the field directly made this whole method throw FieldAccessException at runtime, so shop
+        // items were never replaced with AP items. Read it through reflection instead.
+        private static readonly System.Reflection.FieldInfo baseParentShopField = typeof(ShopItemController).GetField(
+            "m_baseParentShop", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
         private static void OnShopItemCreated(ShopItemController obj)
         {
             if(!APPickUpItem.HasAPItemChecksRemaining())
@@ -176,12 +182,13 @@ namespace ArchiGungeon.GungeonEventHandlers
                 return;
             }
 
-            if (obj.m_baseParentShop == null)
+            BaseShopController baseParentShop = baseParentShopField == null ? null : baseParentShopField.GetValue(obj) as BaseShopController;
+            if (baseParentShop == null)
             {
                 return;
             }
 
-            if (obj.CurrencyType == ShopItemController.ShopCurrencyType.META_CURRENCY|| obj.m_baseParentShop.baseShopType == BaseShopController.AdditionalShopType.FOYER_META)
+            if (obj.CurrencyType == ShopItemController.ShopCurrencyType.META_CURRENCY|| baseParentShop.baseShopType == BaseShopController.AdditionalShopType.FOYER_META)
             {
                 ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Shop Item replacement ignoring meta shop items");
                 return;
@@ -199,7 +206,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             // reset count
             CurrentShopItemCount = 0;
 
-            BaseShopController shopContext = obj.m_baseParentShop;
+            BaseShopController shopContext = baseParentShop;
             BaseShopControllers.Add(shopContext);
 
             //ArchipelagoGUI.ConsoleLog(shopContext.GetType());
@@ -208,8 +215,18 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             obj.sprite.HeightOffGround -= .5f;
 
-            obj.item = PickupObjectDatabase.GetById(APPickUpItem.SpawnItemID);
-            obj.sprite.FlipY = true;
+            PickupObject apItem = PickupObjectDatabase.GetById(APPickUpItem.SpawnItemID);
+            obj.item = apItem;
+
+            // The shop already drew the original item's sprite (and outline) before this event fires, so
+            // swapping obj.item alone left the old picture. Redraw it as the AP item, with the same outline
+            // the shop uses (ShopItemController.InitializeInternal: black, 0.1, 0.05, NORMAL).
+            if (apItem != null && apItem.sprite != null && obj.sprite != null)
+            {
+                SpriteOutlineManager.RemoveOutlineFromSprite(obj.sprite);
+                obj.sprite.SetSprite(apItem.sprite.Collection, apItem.sprite.spriteId);
+                SpriteOutlineManager.AddOutlineToSprite(obj.sprite, Color.black, 0.1f, 0.05f, SpriteOutlineManager.OutlineType.NORMAL);
+            }
             //obj.sprite.HeightOffGround = .5f;
 
 
@@ -278,13 +295,15 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static bool OnChestPreOpen(bool shouldOpen, Chest chest, PlayerController player)
         {
-            if (SessionHandler.Session == null || SessionHandler.Session.Socket.Connected == false)
+            if(!shouldOpen)
             {
                 return shouldOpen;
             }
 
-            if(!shouldOpen)
+            // Offline: no AP items to place, but still count the chest (saved locally, sent on reconnect)
+            if (SessionHandler.Session == null || SessionHandler.Session.Socket.Connected == false)
             {
+                SaveDataManagement.AddToCountSaveDataEntry(CountStats.ChestsOpened, 1);
                 return shouldOpen;
             }
 
@@ -315,11 +334,12 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static void ModifyChestContentsByChestType(Chest chestToEdit)
         {
             
+            // else-if chain: the rainbow case used to be overwritten by the final else (1 AP item)
             if (chestToEdit.IsRainbowChest)
             {
                 chestToEdit.forceContentIds = new List<int> { APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID };
             }
-            if(chestToEdit.ChestIdentifier == Chest.SpecialChestIdentifier.RAT)
+            else if(chestToEdit.ChestIdentifier == Chest.SpecialChestIdentifier.RAT)
             {
                 chestToEdit.forceContentIds = new List<int> { APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID };
             }
@@ -500,6 +520,8 @@ namespace ArchiGungeon.GungeonEventHandlers
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Floor loaded: {lastFloorLoaded}");
 
             SaveDataManagement.SaveCurrentRandomizerProgress();
+            ProgressionUnlocks.OnFloorLoaded(levelDef.dungeonSceneName);
+
             if (characterPastFloors.Contains(levelDef.dungeonSceneName))
             {
                 ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Loading past: {lastFloorLoaded}");

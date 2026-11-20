@@ -47,10 +47,17 @@ namespace ArchiGungeon.ArchipelagoServer
         #endregion
 
         #region Item Handling Variables
+        // Mirror of the server's received-items list for the current slot, in server order, one entry per item.
+        // Kept in sync by count (see SyncReceivedItemsFromServer), so reconnects don't add items twice.
         private static List<ItemInfo> allItemsReceivedFromServer = new List<ItemInfo>();
-        private static bool hasRetrievedServerItemsOnce = false;
         private static List<long> itemsHandledThisRun = new List<long>();
         private static List<long> item_add_queue = new();
+
+        // OnItemReceived runs on the network thread; everything touching the two lists above locks this.
+        private static readonly object itemLock = new object();
+
+        // Seed + slot name of the received-items list, so connecting to another game starts fresh.
+        private static string receivedItemsSlotKey = string.Empty;
 
         private static bool IsProgressItemsGiven { get; set; } = false;
         public static bool IsValidToSpawnItems { get; private set; } = false;
@@ -58,6 +65,10 @@ namespace ArchiGungeon.ArchipelagoServer
 
         #region Randomizer Parameter Variables
         public static DeathLinkService DeathLinkService { get; protected set; }
+        // The service exists even with DeathLink off, so sending has to check this
+        private static bool IsDeathLinkEnabled { get; set; } = false;
+        // Set by the network thread, handled on the game thread in TickCheckItemQueue
+        private static string pendingDeathlinkCause = null;
 
         private static bool HandlingDeathlinkEvent { get; set; } = false;
         #endregion
@@ -104,6 +115,7 @@ namespace ArchiGungeon.ArchipelagoServer
             //LoginSuccessful loginSuccessful = (LoginSuccessful)loginResult;
 
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"Login successful, handling initializing via Slot Data");
+            ResetReceivedItemsIfNewSlot(name);
             PullPlayerYAMLSlotData();
 
             BindToArchipelagoEvents();
@@ -114,6 +126,8 @@ namespace ArchiGungeon.ArchipelagoServer
             PlayerServerInfo = new PlayerConnectionInfo(ip, port, name, password, RoomSeed);
             ConnectionDataWriter.SaveArchipelagoConnectionSettings(PlayerServerInfo);
 
+            // Send anything found while disconnected first, so the location lists below already count it
+            DataSender.SendPendingChecksAndGoal();
             InitializeAPLocationChecks();
 
             TrapSpawnHandler.SetCanSpawn(true);
@@ -186,6 +200,7 @@ namespace ArchiGungeon.ArchipelagoServer
             PlayerSlotSettings = Session.DataStorage.GetSlotData();
             RoomSeed = Session.RoomState.Seed;
             SetPlayerCompletionGoalsDataFromSlotData();
+            ProgressionUnlocks.LoadSlotSettings(PlayerSlotSettings);
 
             foreach (string key in PlayerSlotSettings.Keys)
             {
@@ -198,6 +213,9 @@ namespace ArchiGungeon.ArchipelagoServer
 
         private static void SetPlayerCompletionGoalsDataFromSlotData()
         {
+            // Re-read on every connect, so clear first: avoids duplicates and another seed's goals.
+            ArchipelagoCompletion.ArchipelagoRequiredGoals.Clear();
+
             foreach (PlayerCompletionGoals possiblePlayerGoal in (PlayerCompletionGoals[])Enum.GetValues(typeof(PlayerCompletionGoals)))
             {
 
@@ -420,50 +438,155 @@ namespace ArchiGungeon.ArchipelagoServer
             ArchDebugPrint.DebugLog(DebugCategory.PluginStartup, "Resetting variables for new run");
 
             //SpawnedItemLog.ClearSpawnedItemLog();
-            itemsHandledThisRun.Clear();
+            lock (itemLock)
+            {
+                itemsHandledThisRun.Clear();
+                // Every received item is queued again by the run-start pass, so drop anything still waiting.
+                item_add_queue.Clear();
+            }
             IsReverseCurseSetForRun = false;
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
             HandlingDeathlinkEvent = false;
+            ProgressionUnlocks.ResetForNewRun();
 
             return;
         }
 
+        // Last count the server reported for each item ID, used while offline.
+        private static readonly Dictionary<long, int> lastServerItemCounts = new Dictionary<long, int>();
+
+        /// <summary>
+        /// How many copies of an item ID have been received (persists across runs). Counts from the server's
+        /// list while connected, otherwise from the last server count, otherwise from the local mirror.
+        /// </summary>
+        public static int CountReceivedItem(long itemId)
+        {
+            if (Session != null && Session.Socket.Connected)
+            {
+                try
+                {
+                    int serverCount = 0;
+                    foreach (ItemInfo item in Session.Items.AllItemsReceived)
+                    {
+                        if (item.ItemId == itemId)
+                        {
+                            serverCount++;
+                        }
+                    }
+
+                    lastServerItemCounts[itemId] = serverCount;
+                    return serverCount;
+                }
+                catch (InvalidOperationException)
+                {
+                    // List changed while counting (item arriving on the network thread); fall through.
+                }
+            }
+
+            int cachedCount;
+            if (lastServerItemCounts.TryGetValue(itemId, out cachedCount))
+            {
+                return cachedCount;
+            }
+
+            return CountUniqueLocalItems(itemId);
+        }
+
+        private static int CountUniqueLocalItems(long itemId)
+        {
+            int count = 0;
+            lock (itemLock)
+            {
+                foreach (ItemInfo item in allItemsReceivedFromServer)
+                {
+                    if (item != null && item.ItemId == itemId)
+                    {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        public static bool IsPastGoalEnabled()
+        {
+            string key = GameCompletionGoalKeys[PlayerCompletionGoals.PastsFull];
+            return PlayerSlotSettings.ContainsKey(key) && Convert.ToInt32(PlayerSlotSettings[key]) != 0;
+        }
+
         public static void RetrieveItemsFromServer()
         {
-
             TrapSpawnHandler.SetCanSpawn(false);
             ConsumableSpawnHandler.SetCanSpawn(false);
 
             if (Session == null)
             {
                 ArchipelagoGUI.ConsoleLog("ERROR: Not connected to Archipelago!");
+                TrapSpawnHandler.SetCanSpawn(true);
+                ConsumableSpawnHandler.SetCanSpawn(true);
                 return;
             }
 
-
-            var itemList = Session.Items.AllItemsReceived;
-
             ArchipelagoGUI.ConsoleLog($"Retrieving server items!");
+            SyncReceivedItemsFromServer(queueNewItems: true);
 
-            foreach (var item in itemList)
-            {
-                if(!allItemsReceivedFromServer.Contains(item))
-                {
-                    allItemsReceivedFromServer.Add(item);
-
-                    if (!itemsHandledThisRun.Contains(item.ItemId))
-                    {
-                        AddItemToLocalGungeon(item);
-                    }
-                }   
-            }
-
-            hasRetrievedServerItemsOnce = true;
             TrapSpawnHandler.SetCanSpawn(true);
             ConsumableSpawnHandler.SetCanSpawn(true);
 
             return;
+        }
+
+        /// <summary>
+        /// Appends any items the server has that the local list doesn't yet, matching by position in the
+        /// server's list. The server resends every item on (re)connect; those are already here and are skipped.
+        /// </summary>
+        private static void SyncReceivedItemsFromServer(bool queueNewItems)
+        {
+            if (Session == null)
+            {
+                return;
+            }
+
+            List<ItemInfo> newItems = new List<ItemInfo>();
+
+            lock (itemLock)
+            {
+                var serverItems = Session.Items.AllItemsReceived;
+                for (int i = allItemsReceivedFromServer.Count; i < serverItems.Count; i++)
+                {
+                    allItemsReceivedFromServer.Add(serverItems[i]);
+                    newItems.Add(serverItems[i]);
+                }
+            }
+
+            if (queueNewItems)
+            {
+                foreach (ItemInfo item in newItems)
+                {
+                    AddItemToLocalGungeon(item);
+                }
+            }
+        }
+
+        private static void ResetReceivedItemsIfNewSlot(string slotName)
+        {
+            string slotKey = $"{Session.RoomState.Seed}:{slotName}";
+            if (slotKey == receivedItemsSlotKey)
+            {
+                return;
+            }
+
+            ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"New seed or slot, clearing received items");
+
+            lock (itemLock)
+            {
+                allItemsReceivedFromServer.Clear();
+                item_add_queue.Clear();
+            }
+            lastServerItemCounts.Clear();
+            DataSender.ClearPendingChecksAndGoal();
+            receivedItemsSlotKey = slotKey;
         }
 
         private static void RetrieveItemsFromLocalData()
@@ -472,13 +595,22 @@ namespace ArchiGungeon.ArchipelagoServer
             ConsumableSpawnHandler.SetCanSpawn(false);
 
             ArchipelagoGUI.ConsoleLog($"Retrieving items based on local data!");
-            
-            foreach(ItemInfo item in allItemsReceivedFromServer)
+
+            List<ItemInfo> itemsToGive = new List<ItemInfo>();
+            lock (itemLock)
             {
-                if (!itemsHandledThisRun.Contains(item.ItemId))
+                foreach (ItemInfo item in allItemsReceivedFromServer)
                 {
-                    AddItemToLocalGungeon(item);
+                    if (!itemsHandledThisRun.Contains(item.ItemId))
+                    {
+                        itemsToGive.Add(item);
+                    }
                 }
+            }
+
+            foreach (ItemInfo item in itemsToGive)
+            {
+                AddItemToLocalGungeon(item);
             }
 
             TrapSpawnHandler.SetCanSpawn(true);
@@ -496,7 +628,10 @@ namespace ArchiGungeon.ArchipelagoServer
                 {
                     ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Skipping item on Retrieve command: {itemInfo.ItemName}");
 
-                    itemsHandledThisRun.Add(itemInfo.ItemId);
+                    lock (itemLock)
+                    {
+                        itemsHandledThisRun.Add(itemInfo.ItemId);
+                    }
 
                     return;
                 }
@@ -506,26 +641,27 @@ namespace ArchiGungeon.ArchipelagoServer
 
             ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Receiving item: {itemInfo.ItemName}");
 
-            item_add_queue.Add(itemInfo.ItemId);
+            lock (itemLock)
+            {
+                item_add_queue.Add(itemInfo.ItemId);
+            }
 
             return;
         }
 
         public static void HandleDelayedItemInitialize()
         {
-            if(hasRetrievedServerItemsOnce)
-            {
-                RetrieveItemsFromLocalData();
-            }
-            else
-            {
-                RetrieveItemsFromServer(); 
-            }
+            // Pick up anything missed without queueing it here, then queue every received item once for this run.
+            SyncReceivedItemsFromServer(queueNewItems: false);
+            RetrieveItemsFromLocalData();
 
             CheckForProgressItems();
 
             IsValidToSpawnItems = true;
-            //CheckReverseCurse();
+
+            // Lost when save data moved to local files (b0aba54); without it Reverse Curse mode never cursed.
+            // Runs after the queue is filled, so received Reverse Curse Reversals are given after the curse.
+            CheckReverseCurse();
         }
 
 
@@ -536,10 +672,8 @@ namespace ArchiGungeon.ArchipelagoServer
                 return;
             }
 
-            if (Convert.ToInt32(PlayerSlotSettings[GameCompletionGoalKeys[PlayerCompletionGoals.PastsFull]]) != 0)
-            {
-                ProgressionItemSpawnHandler.GivePastBullet();
-            }
+            // Only once all four bullet parts are received when the Bullet Parts option is on
+            ProgressionUnlocks.GiveBulletIfReady();
 
             if (Convert.ToInt32(PlayerSlotSettings[GameCompletionGoalKeys[PlayerCompletionGoals.AdvancedGungeon]]) == 1)
             {
@@ -551,23 +685,37 @@ namespace ArchiGungeon.ArchipelagoServer
 
         public static void TickCheckItemQueue()
         {
-            if (item_add_queue.Count > 0 && IsValidToSpawnItems)
+            TickPendingDeathlink();
+
+            if (!IsValidToSpawnItems)
             {
-                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Handling item ID: {item_add_queue[0]}");
+                return;
+            }
 
-                try
+            long itemId;
+            lock (itemLock)
+            {
+                if (item_add_queue.Count == 0)
                 {
-                    ArchipelagoGungeonBridge.GiveGungeonItem(item_add_queue[0]);
-                    itemsHandledThisRun.Add(item_add_queue[0]);
+                    return;
                 }
-
-
-                catch (Exception ex)
-                {
-                    ArchipelagoGUI.ConsoleLog("Exception caused during handling giving Archipelago item. Please contact dev: " + ex);
-                }
-
+                itemId = item_add_queue[0];
                 item_add_queue.RemoveAt(0);
+            }
+
+            ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Handling item ID: {itemId}");
+
+            try
+            {
+                ArchipelagoGungeonBridge.GiveGungeonItem(itemId);
+                lock (itemLock)
+                {
+                    itemsHandledThisRun.Add(itemId);
+                }
+            }
+            catch (Exception ex)
+            {
+                ArchipelagoGUI.ConsoleLog("Exception caused during handling giving Archipelago item. Please contact dev: " + ex);
             }
 
             return;
@@ -578,6 +726,34 @@ namespace ArchiGungeon.ArchipelagoServer
 
         #region Deathlink
         // DEATHLINK =====================
+
+        private static void TickPendingDeathlink()
+        {
+            string cause = pendingDeathlinkCause;
+            if (cause == null)
+            {
+                return;
+            }
+            pendingDeathlinkCause = null;
+
+            // Nothing to kill outside a run
+            if (GameManager.Instance == null || GameManager.Instance.IsFoyer || GungeonPlayerEventListener.GetFirstAlivePlayer() == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, "Deathlink received outside a run, ignoring");
+                HandlingDeathlinkEvent = false;
+                return;
+            }
+
+            try
+            {
+                ArchipelagoGungeonBridge.DeathlinkKillPlayer(cause);
+            }
+            catch (Exception ex)
+            {
+                HandlingDeathlinkEvent = false;
+                ArchipelagoGUI.ConsoleLog("Exception while handling Deathlink: " + ex.Message);
+            }
+        }
 
         private static void CheckToCreateDeathlink()
         {
@@ -597,6 +773,7 @@ namespace ArchiGungeon.ArchipelagoServer
         private static void InitializeDeathlink(bool isDeathlinkEnabled)
         {
             DeathLinkService = Session.CreateDeathLinkService();
+            IsDeathLinkEnabled = isDeathlinkEnabled;
 
             if (isDeathlinkEnabled)
             {
@@ -621,14 +798,13 @@ namespace ArchiGungeon.ArchipelagoServer
                 case 0:
                     ArchipelagoGUI.ConsoleLog("Deathlink has been DISABLED");
                     DeathLinkService.DisableDeathLink();
+                    IsDeathLinkEnabled = false;
                     return;
                 case 1:
-                    ArchipelagoGUI.ConsoleLog("Deathlink has been ENABLED");
-                    DeathLinkService.EnableDeathLink();
-                    return;
                 case 2:
                     ArchipelagoGUI.ConsoleLog("Deathlink has been ENABLED");
                     DeathLinkService.EnableDeathLink();
+                    IsDeathLinkEnabled = true;
                     return;
                 default:
                     ArchipelagoGUI.ConsoleLog("Invalid deathlink mode setting!");
@@ -732,6 +908,12 @@ namespace ArchiGungeon.ArchipelagoServer
                 return;
             }
 
+            // Not in the Breach: the curse belongs on the character that's actually in the run
+            if (GameManager.Instance == null || GameManager.Instance.IsFoyer || GungeonPlayerEventListener.GetFirstAlivePlayer() == null)
+            {
+                return;
+            }
+
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"Checking for reverse curse");
             int reverseCurseModeValue = Convert.ToInt32(PlayerSlotSettings["ReverseCurse"]);
 
@@ -815,18 +997,84 @@ namespace ArchiGungeon.ArchipelagoServer
 
             #region High Priority Send Functions
             // High priority generally meaning, randomizer hard stops if these fail communication
+            // Checks and goal completion found while disconnected, sent on the next connect to the same slot.
+            // Before this they threw (Session was null) inside the game code that found them, and were lost.
+            private static readonly List<long> pendingLocationChecks = new List<long>();
+            private static bool isGoalCompletionPending = false;
+
+            private static bool IsConnected
+            {
+                get { return Session != null && Session.Socket.Connected; }
+            }
+
             public static void SendFoundLocationCheck(long idToSend)
             {
-                //ScoutFoundLocationCheck(idToSend);
-                Session.Locations.CompleteLocationChecks(idToSend);
-
+                SendFoundLocationCheck(new long[] { idToSend });
                 return;
             }
 
             public static void SendFoundLocationCheck(long[] idArray)
             {
-                Session.Locations.CompleteLocationChecks(idArray);
+                if (idArray == null || idArray.Length == 0)
+                {
+                    return;
+                }
+
+                if (IsConnected)
+                {
+                    try
+                    {
+                        Session.Locations.CompleteLocationChecks(idArray);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        ArchDebugPrint.DebugLog(DebugCategory.ServerSend, $"Sending checks failed, keeping them for later: {ex.Message}");
+                    }
+                }
+
+                lock (pendingLocationChecks)
+                {
+                    pendingLocationChecks.AddRange(idArray);
+                }
+                ArchipelagoGUI.ConsoleLog($"Not connected: {idArray.Length} check(s) will be sent when you reconnect");
                 return;
+            }
+
+            public static void SendPendingChecksAndGoal()
+            {
+                if (!IsConnected)
+                {
+                    return;
+                }
+
+                long[] toSend;
+                lock (pendingLocationChecks)
+                {
+                    toSend = pendingLocationChecks.ToArray();
+                    pendingLocationChecks.Clear();
+                }
+
+                if (toSend.Length > 0)
+                {
+                    ArchipelagoGUI.ConsoleLog($"Sending {toSend.Length} check(s) found while disconnected");
+                    SendFoundLocationCheck(toSend);
+                }
+
+                if (isGoalCompletionPending)
+                {
+                    isGoalCompletionPending = false;
+                    SendGameCompletion();
+                }
+            }
+
+            public static void ClearPendingChecksAndGoal()
+            {
+                lock (pendingLocationChecks)
+                {
+                    pendingLocationChecks.Clear();
+                }
+                isGoalCompletionPending = false;
             }
 
             public static void SendDeathlink(string playerName = "Gungeoneer", string causeOfDeath = "Died to Gungeon")
@@ -834,6 +1082,11 @@ namespace ArchiGungeon.ArchipelagoServer
                 if (DeathLinkService == null || Session == null)
                 {
                     ArchipelagoGUI.ConsoleLog("Tried to send Deathlink but not connected!");
+                    return;
+                }
+
+                if (!IsDeathLinkEnabled || !(Session.Socket.Connected))
+                {
                     return;
                 }
 
@@ -877,6 +1130,13 @@ namespace ArchiGungeon.ArchipelagoServer
 
             private static void SendGameCompletion()
             {
+                if (!IsConnected)
+                {
+                    isGoalCompletionPending = true;
+                    ArchipelagoGUI.ConsoleLog("Goal complete! It will be sent when you reconnect");
+                    return;
+                }
+
                 StatusUpdatePacket statusUpdatePacket = new StatusUpdatePacket();
                 statusUpdatePacket.Status = ArchipelagoClientState.ClientGoal;
                 Session.Socket.SendPacket(statusUpdatePacket);
@@ -929,11 +1189,8 @@ namespace ArchiGungeon.ArchipelagoServer
                 HandlingDeathlinkEvent = true;
                 ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Received DeathLink");
 
-                string playerCauser = deathLink.Source;
-
-                string deathlinkCause = $"Deathlink by {playerCauser}";
-
-                ArchipelagoGungeonBridge.DeathlinkKillPlayer(deathlinkCause);
+                // This runs on the network thread; the kill happens on the game thread in TickCheckItemQueue
+                pendingDeathlinkCause = $"Deathlink by {deathLink.Source}";
                 return;
             }
 
@@ -943,13 +1200,11 @@ namespace ArchiGungeon.ArchipelagoServer
                 ItemInfo itemInfo = helper.PeekItem();
                 ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"OnItemReceived - {itemInfo.ItemId} -- {itemInfo.ItemName}");
 
-                allItemsReceivedFromServer.Add(itemInfo);
+                // Adds and queues only items not already received. On (re)connect the server resends
+                // everything, and those are skipped instead of being given a second time.
+                SyncReceivedItemsFromServer(queueNewItems: true);
 
-                AddItemToLocalGungeon(itemInfo);
-
-                ItemInfo nextQueueItem = helper.DequeueItem();
-
-                ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Queue item: - {nextQueueItem.ItemId} -- {nextQueueItem.ItemName}");
+                helper.DequeueItem();
 
                 return;
             }
