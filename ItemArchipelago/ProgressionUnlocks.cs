@@ -295,7 +295,11 @@ namespace ArchiGungeon.ItemArchipelago
             if (ChamberAccessCount < needed)
             {
                 ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Elevator locked: need {needed} chamber access, have {ChamberAccessCount}");
-                ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                // The Elevator Operator says it if he's on this floor; otherwise fall back to the note
+                if (!ArchiGungeon.Character.ElevatorOperator.TryAnnounceLock(needed, ChamberAccessCount))
+                {
+                    ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                }
                 return;
             }
 
@@ -308,7 +312,11 @@ namespace ArchiGungeon.ItemArchipelago
 
             if (!playerless && ChamberAccessCount < needed)
             {
-                ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                // The Elevator Operator says it if he's on this floor; otherwise fall back to the note
+                if (!ArchiGungeon.Character.ElevatorOperator.TryAnnounceLock(needed, ChamberAccessCount))
+                {
+                    ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                }
                 return;
             }
 

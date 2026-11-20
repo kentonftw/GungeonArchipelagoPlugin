@@ -52,6 +52,7 @@ namespace ArchiGungeon
             RegisterItems();
             InitEnemyHooks();
             InitModMenu();
+            ElevatorOperator.Init();
             
 
             Log($"{NAME} v{VERSION} started successfully.", TEXT_COLOR);
