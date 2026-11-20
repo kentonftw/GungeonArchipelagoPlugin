@@ -431,18 +431,70 @@ namespace ArchiGungeon.ArchipelagoServer
             return;
         }
 
-        /// <summary>How many copies of an item ID have been received from the server (persists across runs).</summary>
+        // Last count the server reported for each item ID, used while offline.
+        private static readonly Dictionary<long, int> lastServerItemCounts = new Dictionary<long, int>();
+
+        /// <summary>
+        /// How many copies of an item ID have been received (persists across runs).
+        /// Counts from the server's list while connected, which has exactly one entry per received item.
+        /// allItemsReceivedFromServer can hold the same item more than once: OnItemReceived and
+        /// RetrieveItemsFromServer both add to it, and the server resends every item after a reconnect.
+        /// </summary>
         public static int CountReceivedItem(long itemId)
         {
+            if (Session != null && Session.Socket.Connected)
+            {
+                try
+                {
+                    int serverCount = 0;
+                    foreach (ItemInfo item in Session.Items.AllItemsReceived)
+                    {
+                        if (item.ItemId == itemId)
+                        {
+                            serverCount++;
+                        }
+                    }
+
+                    lastServerItemCounts[itemId] = serverCount;
+                    return serverCount;
+                }
+                catch (InvalidOperationException)
+                {
+                    // List changed while counting (item arriving on the network thread); fall through.
+                }
+            }
+
+            int cachedCount;
+            if (lastServerItemCounts.TryGetValue(itemId, out cachedCount))
+            {
+                return cachedCount;
+            }
+
+            return CountUniqueLocalItems(itemId);
+        }
+
+        /// <summary>Counts local entries once per sending slot and location. Items with no location
+        /// (server commands, starting inventory) can't be told apart, so each of those counts.</summary>
+        private static int CountUniqueLocalItems(long itemId)
+        {
+            HashSet<string> seen = new HashSet<string>();
             int count = 0;
+
             // Index loop: items can be appended from the network thread while this runs.
             for (int i = 0; i < allItemsReceivedFromServer.Count; i++)
             {
-                if (allItemsReceivedFromServer[i].ItemId == itemId)
+                ItemInfo item = allItemsReceivedFromServer[i];
+                if (item == null || item.ItemId != itemId)
+                {
+                    continue;
+                }
+
+                if (item.LocationId < 0 || seen.Add($"{item.Player?.Slot}:{item.LocationId}"))
                 {
                     count++;
                 }
             }
+
             return count;
         }
 
