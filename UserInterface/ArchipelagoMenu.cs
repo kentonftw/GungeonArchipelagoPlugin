@@ -15,7 +15,7 @@ namespace ArchiGungeon.UserInterface
 {
     /// <summary>
     /// The ArchipelaGun window: Connect, Tracker, Items, Hints and Console tabs, drawn with Unity's IMGUI.
-    /// Opened by firing the Archipelagun outside combat or with the menu key (F8 by default).
+    /// Opened and closed with the menu key (F8 by default). This is the only way to connect.
     /// </summary>
     public class ArchipelagoMenu : MonoBehaviour
     {
@@ -267,9 +267,9 @@ namespace ArchiGungeon.UserInterface
             }
 
             bool connected = SessionHandler.IsConnected;
-            string text = connected ? "AP ● Connected" : "AP ● Offline";
+            string text = connected ? "AP ● Connected" : $"AP ● Offline ({menuKey.Value} to connect)";
             statusStyle.normal.textColor = connected ? Green : Red;
-            GUI.Label(new Rect(virtualWidth / 2f - 90f, 4f, 180f, 22f), text, statusStyle);
+            GUI.Label(new Rect(virtualWidth / 2f - 130f, 4f, 260f, 22f), text, statusStyle);
         }
 
         private void DrawWindow(int id)

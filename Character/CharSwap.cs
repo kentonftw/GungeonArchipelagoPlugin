@@ -84,14 +84,6 @@ namespace ArchiGungeon.Character
             return;
         }
 
-        public static void HandleLostItemsOnCharacterSwap(PlayerController player)
-        {
-            ArchDebugPrint.DebugLog(DebugCategory.CharacterSystems, "Reint lost items from character swap paradox mode");
-
-            PickupObject archipelaGun = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID);
-            player.inventory.AddGunToInventory((Gun)archipelaGun, makeActive: true);
-        }
-
         public static void HandleLostItemsOnPastsLoading(string floor, PlayerController player)
         {
             switch (floor)

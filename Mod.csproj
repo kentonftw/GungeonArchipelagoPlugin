@@ -60,7 +60,6 @@
     <Compile Include="GungeonEventHandlers\EffectsController.cs" />
     <Compile Include="ItemArchipelago\ReverseCurseItems.cs" />
     <Compile Include="ItemArchipelago\APPickUpItem.cs" />
-    <Compile Include="ItemArchipelago\Archipelagun.cs" />
     <Compile Include="ItemArchipelago\AchievementLocationCheckHandler.cs" />
     <Compile Include="ItemArchipelago\ShopAPItemHandler.cs" />
     <Compile Include="ItemArchipelago\ProgressionUnlocks.cs" />

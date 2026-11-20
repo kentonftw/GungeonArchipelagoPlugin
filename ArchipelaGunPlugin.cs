@@ -70,7 +70,6 @@ namespace ArchiGungeon
 
         private void RegisterItems()
         {
-            Archipelagun.Register();
             APPickUpItem.RegisterItemBase();
             ReverseCurse.RegisterItem();
             ReverseCurseReversal.RegisterItem();

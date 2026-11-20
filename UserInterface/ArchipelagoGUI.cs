@@ -275,7 +275,7 @@ namespace ArchiGungeon.UserInterface
         }
 
         // The SGUI console is no longer drawn; the ArchipelaGun window (ArchipelagoMenu) replaces it.
-        // These stay the single entry points so the Archipelagun item, the menu key and connect all agree.
+        // These stay the single entry points so the menu key, the window and connect all agree.
         public override void OnOpen()
         {
             IsOpen = true;

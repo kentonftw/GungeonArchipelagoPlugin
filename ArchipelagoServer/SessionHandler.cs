@@ -73,6 +73,9 @@ namespace ArchiGungeon.ArchipelagoServer
         public static bool DeathLinkOn { get { return IsDeathLinkEnabled; } }
         public static bool EnemyShuffleOn { get; private set; } = false;
 
+        /// <summary>Set once the per-run setup has run; cleared when a new run starts.</summary>
+        public static bool RunSetupDoneThisRun { get; private set; } = false;
+
         public static bool IsInRunWithPlayer()
         {
             return GameManager.HasInstance && !GameManager.Instance.IsFoyer && GameManager.Instance.PrimaryPlayer != null
@@ -485,13 +488,15 @@ namespace ArchiGungeon.ArchipelagoServer
                 return;
             }
 
-            // The menu key can connect from the title screen or the Breach. Paradox Mode, item spawning and the
-            // goals box all need a player in a run; picking up the Archipelagun at the start of a run calls this again.
+            // You can connect from the title screen or the Breach. Paradox Mode and item spawning need a player
+            // in a run; the first floor load of the next run calls this again.
             if (!IsInRunWithPlayer())
             {
-                ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, "Not in a run yet; run setup waits for the Archipelagun pickup");
+                ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, "Not in a run yet; run setup waits for the first floor");
                 return;
             }
+
+            RunSetupDoneThisRun = true;
 
             CheckToInitializeParadoxMode();
 
@@ -544,6 +549,7 @@ namespace ArchiGungeon.ArchipelagoServer
                 item_add_queue.Clear();
             }
             IsReverseCurseSetForRun = false;
+            RunSetupDoneThisRun = false;
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
             HandlingDeathlinkEvent = false;
@@ -991,7 +997,6 @@ namespace ArchiGungeon.ArchipelagoServer
                 }
 
                 //ETGModConsole.Instance?.ParseCommand("character paradox");
-                //GameObject archipelItem = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID).gameObject;
                 //LootEngine.SpawnItem(archipelItem, playerController.CenterPosition, Vector2.zero, 0);
 
                 CharSwap.StartParadoxMode(playerController);
@@ -1398,7 +1403,8 @@ namespace ArchiGungeon.ArchipelagoServer
             yield return new WaitForSeconds(waitTime);
 
             SessionHandler.HandleDelayedItemInitialize();
-            SessionHandler.ShowGoalsTextbox();
+            // The goals box used to open here and was dismissed by switching off the Archipelagun; the menu's
+            // Tracker tab shows the same information now.
             IsDelayedItemInitCoroutineRunning = false;
         }
 
