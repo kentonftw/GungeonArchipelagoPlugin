@@ -7,6 +7,7 @@ using ArchiGungeon.ArchipelagoServer;
 using ArchiGungeon.GungeonEventHandlers;
 using ArchiGungeon.UserInterface;
 using ArchiGungeon.DebugTools;
+using ArchiGungeon.Data;
 
 namespace ArchiGungeon.ItemArchipelago
 {
