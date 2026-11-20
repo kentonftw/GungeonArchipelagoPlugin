@@ -271,8 +271,41 @@ namespace ArchiGungeon.UserInterface
             base.OnOpen();
             base.GUI[1].Focus();
             IsOpen = true;
+            SetPlayerInputLock(true);
 
             return;
+        }
+
+        // While the menu is open, typing shouldn't also move, shoot, dodge or use items.
+        // Uses the game's own input override (the same lock cutscenes use), keyed by this reason.
+        private const string InputLockReason = "ArchipelagoConsole";
+        private static bool isInputLocked = false;
+
+        private static void SetPlayerInputLock(bool locked)
+        {
+            if (locked == isInputLocked || GameManager.Instance == null || GameManager.Instance.AllPlayers == null)
+            {
+                return;
+            }
+
+            foreach (PlayerController player in GameManager.Instance.AllPlayers)
+            {
+                if (player == null)
+                {
+                    continue;
+                }
+
+                if (locked)
+                {
+                    player.SetInputOverride(InputLockReason);
+                }
+                else
+                {
+                    player.ClearInputOverride(InputLockReason);
+                }
+            }
+
+            isInputLocked = locked;
         }
 
 
@@ -288,6 +321,7 @@ namespace ArchiGungeon.UserInterface
             base.OnClose();
             OnMenuClose.Invoke();
             IsOpen = false;
+            SetPlayerInputLock(false);
 
             return;
         }
