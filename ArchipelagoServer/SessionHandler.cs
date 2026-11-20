@@ -47,10 +47,17 @@ namespace ArchiGungeon.ArchipelagoServer
         #endregion
 
         #region Item Handling Variables
+        // Mirror of the server's received-items list for the current slot, in server order, one entry per item.
+        // Kept in sync by count (see SyncReceivedItemsFromServer), so reconnects don't add items twice.
         private static List<ItemInfo> allItemsReceivedFromServer = new List<ItemInfo>();
-        private static bool hasRetrievedServerItemsOnce = false;
         private static List<long> itemsHandledThisRun = new List<long>();
         private static List<long> item_add_queue = new();
+
+        // OnItemReceived runs on the network thread; everything touching the two lists above locks this.
+        private static readonly object itemLock = new object();
+
+        // Seed + slot name of the received-items list, so connecting to another game starts fresh.
+        private static string receivedItemsSlotKey = string.Empty;
 
         private static bool IsProgressItemsGiven { get; set; } = false;
         public static bool IsValidToSpawnItems { get; private set; } = false;
@@ -104,6 +111,7 @@ namespace ArchiGungeon.ArchipelagoServer
             //LoginSuccessful loginSuccessful = (LoginSuccessful)loginResult;
 
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"Login successful, handling initializing via Slot Data");
+            ResetReceivedItemsIfNewSlot(name);
             PullPlayerYAMLSlotData();
 
             BindToArchipelagoEvents();
@@ -199,6 +207,9 @@ namespace ArchiGungeon.ArchipelagoServer
 
         private static void SetPlayerCompletionGoalsDataFromSlotData()
         {
+            // Re-read on every connect, so clear first: avoids duplicates and another seed's goals.
+            ArchipelagoCompletion.ArchipelagoRequiredGoals.Clear();
+
             foreach (PlayerCompletionGoals possiblePlayerGoal in (PlayerCompletionGoals[])Enum.GetValues(typeof(PlayerCompletionGoals)))
             {
 
@@ -421,7 +432,12 @@ namespace ArchiGungeon.ArchipelagoServer
             ArchDebugPrint.DebugLog(DebugCategory.PluginStartup, "Resetting variables for new run");
 
             //SpawnedItemLog.ClearSpawnedItemLog();
-            itemsHandledThisRun.Clear();
+            lock (itemLock)
+            {
+                itemsHandledThisRun.Clear();
+                // Every received item is queued again by the run-start pass, so drop anything still waiting.
+                item_add_queue.Clear();
+            }
             IsReverseCurseSetForRun = false;
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
@@ -435,10 +451,8 @@ namespace ArchiGungeon.ArchipelagoServer
         private static readonly Dictionary<long, int> lastServerItemCounts = new Dictionary<long, int>();
 
         /// <summary>
-        /// How many copies of an item ID have been received (persists across runs).
-        /// Counts from the server's list while connected, which has exactly one entry per received item.
-        /// allItemsReceivedFromServer can hold the same item more than once: OnItemReceived and
-        /// RetrieveItemsFromServer both add to it, and the server resends every item after a reconnect.
+        /// How many copies of an item ID have been received (persists across runs). Counts from the server's
+        /// list while connected, otherwise from the last server count, otherwise from the local mirror.
         /// </summary>
         public static int CountReceivedItem(long itemId)
         {
@@ -473,28 +487,19 @@ namespace ArchiGungeon.ArchipelagoServer
             return CountUniqueLocalItems(itemId);
         }
 
-        /// <summary>Counts local entries once per sending slot and location. Items with no location
-        /// (server commands, starting inventory) can't be told apart, so each of those counts.</summary>
         private static int CountUniqueLocalItems(long itemId)
         {
-            HashSet<string> seen = new HashSet<string>();
             int count = 0;
-
-            // Index loop: items can be appended from the network thread while this runs.
-            for (int i = 0; i < allItemsReceivedFromServer.Count; i++)
+            lock (itemLock)
             {
-                ItemInfo item = allItemsReceivedFromServer[i];
-                if (item == null || item.ItemId != itemId)
+                foreach (ItemInfo item in allItemsReceivedFromServer)
                 {
-                    continue;
-                }
-
-                if (item.LocationId < 0 || seen.Add($"{item.Player?.Slot}:{item.LocationId}"))
-                {
-                    count++;
+                    if (item != null && item.ItemId == itemId)
+                    {
+                        count++;
+                    }
                 }
             }
-
             return count;
         }
 
@@ -506,39 +511,75 @@ namespace ArchiGungeon.ArchipelagoServer
 
         public static void RetrieveItemsFromServer()
         {
-
             TrapSpawnHandler.SetCanSpawn(false);
             ConsumableSpawnHandler.SetCanSpawn(false);
 
             if (Session == null)
             {
                 ArchipelagoGUI.ConsoleLog("ERROR: Not connected to Archipelago!");
+                TrapSpawnHandler.SetCanSpawn(true);
+                ConsumableSpawnHandler.SetCanSpawn(true);
                 return;
             }
 
-
-            var itemList = Session.Items.AllItemsReceived;
-
             ArchipelagoGUI.ConsoleLog($"Retrieving server items!");
+            SyncReceivedItemsFromServer(queueNewItems: true);
 
-            foreach (var item in itemList)
-            {
-                if(!allItemsReceivedFromServer.Contains(item))
-                {
-                    allItemsReceivedFromServer.Add(item);
-
-                    if (!itemsHandledThisRun.Contains(item.ItemId))
-                    {
-                        AddItemToLocalGungeon(item);
-                    }
-                }   
-            }
-
-            hasRetrievedServerItemsOnce = true;
             TrapSpawnHandler.SetCanSpawn(true);
             ConsumableSpawnHandler.SetCanSpawn(true);
 
             return;
+        }
+
+        /// <summary>
+        /// Appends any items the server has that the local list doesn't yet, matching by position in the
+        /// server's list. The server resends every item on (re)connect; those are already here and are skipped.
+        /// </summary>
+        private static void SyncReceivedItemsFromServer(bool queueNewItems)
+        {
+            if (Session == null)
+            {
+                return;
+            }
+
+            List<ItemInfo> newItems = new List<ItemInfo>();
+
+            lock (itemLock)
+            {
+                var serverItems = Session.Items.AllItemsReceived;
+                for (int i = allItemsReceivedFromServer.Count; i < serverItems.Count; i++)
+                {
+                    allItemsReceivedFromServer.Add(serverItems[i]);
+                    newItems.Add(serverItems[i]);
+                }
+            }
+
+            if (queueNewItems)
+            {
+                foreach (ItemInfo item in newItems)
+                {
+                    AddItemToLocalGungeon(item);
+                }
+            }
+        }
+
+        private static void ResetReceivedItemsIfNewSlot(string slotName)
+        {
+            string slotKey = $"{Session.RoomState.Seed}:{slotName}";
+            if (slotKey == receivedItemsSlotKey)
+            {
+                return;
+            }
+
+            ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"New seed or slot, clearing received items");
+
+            lock (itemLock)
+            {
+                allItemsReceivedFromServer.Clear();
+                item_add_queue.Clear();
+            }
+            lastServerItemCounts.Clear();
+            receivedItemsSlotKey = slotKey;
         }
 
         private static void RetrieveItemsFromLocalData()
@@ -547,13 +588,22 @@ namespace ArchiGungeon.ArchipelagoServer
             ConsumableSpawnHandler.SetCanSpawn(false);
 
             ArchipelagoGUI.ConsoleLog($"Retrieving items based on local data!");
-            
-            foreach(ItemInfo item in allItemsReceivedFromServer)
+
+            List<ItemInfo> itemsToGive = new List<ItemInfo>();
+            lock (itemLock)
             {
-                if (!itemsHandledThisRun.Contains(item.ItemId))
+                foreach (ItemInfo item in allItemsReceivedFromServer)
                 {
-                    AddItemToLocalGungeon(item);
+                    if (!itemsHandledThisRun.Contains(item.ItemId))
+                    {
+                        itemsToGive.Add(item);
+                    }
                 }
+            }
+
+            foreach (ItemInfo item in itemsToGive)
+            {
+                AddItemToLocalGungeon(item);
             }
 
             TrapSpawnHandler.SetCanSpawn(true);
@@ -571,7 +621,10 @@ namespace ArchiGungeon.ArchipelagoServer
                 {
                     ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Skipping item on Retrieve command: {itemInfo.ItemName}");
 
-                    itemsHandledThisRun.Add(itemInfo.ItemId);
+                    lock (itemLock)
+                    {
+                        itemsHandledThisRun.Add(itemInfo.ItemId);
+                    }
 
                     return;
                 }
@@ -581,21 +634,19 @@ namespace ArchiGungeon.ArchipelagoServer
 
             ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Receiving item: {itemInfo.ItemName}");
 
-            item_add_queue.Add(itemInfo.ItemId);
+            lock (itemLock)
+            {
+                item_add_queue.Add(itemInfo.ItemId);
+            }
 
             return;
         }
 
         public static void HandleDelayedItemInitialize()
         {
-            if(hasRetrievedServerItemsOnce)
-            {
-                RetrieveItemsFromLocalData();
-            }
-            else
-            {
-                RetrieveItemsFromServer(); 
-            }
+            // Pick up anything missed without queueing it here, then queue every received item once for this run.
+            SyncReceivedItemsFromServer(queueNewItems: false);
+            RetrieveItemsFromLocalData();
 
             CheckForProgressItems();
 
@@ -624,23 +675,35 @@ namespace ArchiGungeon.ArchipelagoServer
 
         public static void TickCheckItemQueue()
         {
-            if (item_add_queue.Count > 0 && IsValidToSpawnItems)
+            if (!IsValidToSpawnItems)
             {
-                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Handling item ID: {item_add_queue[0]}");
+                return;
+            }
 
-                try
+            long itemId;
+            lock (itemLock)
+            {
+                if (item_add_queue.Count == 0)
                 {
-                    ArchipelagoGungeonBridge.GiveGungeonItem(item_add_queue[0]);
-                    itemsHandledThisRun.Add(item_add_queue[0]);
+                    return;
                 }
-
-
-                catch (Exception ex)
-                {
-                    ArchipelagoGUI.ConsoleLog("Exception caused during handling giving Archipelago item. Please contact dev: " + ex);
-                }
-
+                itemId = item_add_queue[0];
                 item_add_queue.RemoveAt(0);
+            }
+
+            ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Handling item ID: {itemId}");
+
+            try
+            {
+                ArchipelagoGungeonBridge.GiveGungeonItem(itemId);
+                lock (itemLock)
+                {
+                    itemsHandledThisRun.Add(itemId);
+                }
+            }
+            catch (Exception ex)
+            {
+                ArchipelagoGUI.ConsoleLog("Exception caused during handling giving Archipelago item. Please contact dev: " + ex);
             }
 
             return;
@@ -1016,13 +1079,11 @@ namespace ArchiGungeon.ArchipelagoServer
                 ItemInfo itemInfo = helper.PeekItem();
                 ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"OnItemReceived - {itemInfo.ItemId} -- {itemInfo.ItemName}");
 
-                allItemsReceivedFromServer.Add(itemInfo);
+                // Adds and queues only items not already received. On (re)connect the server resends
+                // everything, and those are skipped instead of being given a second time.
+                SyncReceivedItemsFromServer(queueNewItems: true);
 
-                AddItemToLocalGungeon(itemInfo);
-
-                ItemInfo nextQueueItem = helper.DequeueItem();
-
-                ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Queue item: - {nextQueueItem.ItemId} -- {nextQueueItem.ItemName}");
+                helper.DequeueItem();
 
                 return;
             }
