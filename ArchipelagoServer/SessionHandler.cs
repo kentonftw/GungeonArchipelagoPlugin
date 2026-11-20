@@ -73,6 +73,12 @@ namespace ArchiGungeon.ArchipelagoServer
         public static bool DeathLinkOn { get { return IsDeathLinkEnabled; } }
         public static bool EnemyShuffleOn { get; private set; } = false;
 
+        public static bool IsInRunWithPlayer()
+        {
+            return GameManager.HasInstance && !GameManager.Instance.IsFoyer && GameManager.Instance.PrimaryPlayer != null
+                && !GameManager.Instance.IsLoadingLevel;
+        }
+
         public static void SetConnectionError(string message)
         {
             LastConnectionError = message;
@@ -476,6 +482,14 @@ namespace ArchiGungeon.ArchipelagoServer
 
             if (Session.Socket.Connected == false)
             {
+                return;
+            }
+
+            // The menu key can connect from the title screen or the Breach. Paradox Mode, item spawning and the
+            // goals box all need a player in a run; picking up the Archipelagun at the start of a run calls this again.
+            if (!IsInRunWithPlayer())
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, "Not in a run yet; run setup waits for the Archipelagun pickup");
                 return;
             }
 
@@ -971,6 +985,10 @@ namespace ArchiGungeon.ArchipelagoServer
             if (Convert.ToInt32(PlayerSlotSettings["Paradox"]) == 1)
             {
                 PlayerController playerController = GungeonPlayerEventListener.GetFirstAlivePlayer();
+                if (playerController == null)
+                {
+                    return false;
+                }
 
                 //ETGModConsole.Instance?.ParseCommand("character paradox");
                 //GameObject archipelItem = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID).gameObject;
@@ -1047,7 +1065,7 @@ namespace ArchiGungeon.ArchipelagoServer
 
         public static void ShowGoalsTextbox()
         {
-            if(IsGoalsTextBoxOpen)
+            if(IsGoalsTextBoxOpen || GungeonPlayerEventListener.GetFirstAlivePlayer() == null)
             {
                 return;
             }

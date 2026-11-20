@@ -37,13 +37,29 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         public static PlayerController GetFirstAlivePlayer()
         {
-            if (PlayerOne.healthHaver.IsAlive)
+            // Null-safe: there is no player on the title screen, and PlayerTwo only exists in co-op
+            if (PlayerOne != null && PlayerOne.healthHaver != null && PlayerOne.healthHaver.IsAlive)
             {
                 return PlayerOne;
             }
-            else if (PlayerTwo.healthHaver.IsAlive)
+            if (PlayerTwo != null && PlayerTwo.healthHaver != null && PlayerTwo.healthHaver.IsAlive)
             {
                 return PlayerTwo;
+            }
+
+            // Fall back to the game's own player references (e.g. before our spawn listener saw the player)
+            if (GameManager.HasInstance)
+            {
+                PlayerController primary = GameManager.Instance.PrimaryPlayer;
+                if (primary != null && primary.healthHaver != null && primary.healthHaver.IsAlive)
+                {
+                    return primary;
+                }
+                PlayerController secondary = GameManager.Instance.SecondaryPlayer;
+                if (secondary != null && secondary.healthHaver != null && secondary.healthHaver.IsAlive)
+                {
+                    return secondary;
+                }
             }
 
             return null;
