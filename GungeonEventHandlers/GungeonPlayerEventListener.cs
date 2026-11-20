@@ -582,6 +582,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 }
             }
             controller.characterIdentity = PlayableCharacters.Pilot;
+            APPickUpItem.ShowRunSummary();
             SaveDataManagement.SaveCurrentRandomizerProgress();
 
             string deathCause = $"Died to {controller.healthHaver.lastIncurredDamageSource} in the Gungeon";

@@ -71,11 +71,12 @@ namespace ArchiGungeon.UserInterface
         private readonly List<ProgressRow> goalRows = new List<ProgressRow>();
         private string completionText = "";
         private List<ItemInfo> receivedItems = new List<ItemInfo>();
+        private List<string> receivedTooltips = new List<string>();
 
         // ---- styles
         private bool stylesBuilt = false;
         private GUIStyle windowStyle, tabStyle, tabActiveStyle, labelStyle, mutedStyle, headerStyle,
-            valueStyle, buttonStyle, fieldStyle, boxStyle, barBackStyle, barFillStyle, statusStyle, errorStyle, consoleStyle;
+            valueStyle, buttonStyle, fieldStyle, boxStyle, barBackStyle, barFillStyle, statusStyle, errorStyle, consoleStyle, tooltipStyle;
 
         private static readonly Color Gold = new Color(0.96f, 0.82f, 0.25f);
         private static readonly Color Green = new Color(0.45f, 0.85f, 0.45f);
@@ -582,6 +583,17 @@ namespace ArchiGungeon.UserInterface
                 completionText = unmet.Count == 0 ? "Everything needed is done. Finish a run to send your goal." : string.Join(", ", unmet.ToArray());
 
                 receivedItems = SessionHandler.GetReceivedItemsSnapshot();
+
+                // Copy numbers count each item type in the order received, matching how they're handed out
+                receivedTooltips = new List<string>(receivedItems.Count);
+                Dictionary<long, int> copies = new Dictionary<long, int>();
+                foreach (ItemInfo item in receivedItems)
+                {
+                    int copy;
+                    copies.TryGetValue(item.ItemId, out copy);
+                    copies[item.ItemId] = copy + 1;
+                    receivedTooltips.Add(ItemTooltips.Build(item, copy));
+                }
             }
             catch (Exception e)
             {
@@ -707,20 +719,22 @@ namespace ArchiGungeon.UserInterface
                 return;
             }
 
-            GUILayout.Label($"{receivedItems.Count} items received, newest first. Gold is progression, blue is useful.", mutedStyle);
+            GUILayout.Label($"{receivedItems.Count} items received, newest first. Gold is progression, blue is useful. Hover an item for details.", mutedStyle);
             itemsScroll = GUILayout.BeginScrollView(itemsScroll, boxStyle);
 
             for (int i = receivedItems.Count - 1; i >= 0; i--)
             {
                 ItemInfo item = receivedItems[i];
+                string tip = i < receivedTooltips.Count ? receivedTooltips[i] : "";
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
-                GUILayout.Label($"from {SafePlayerName(item)}", mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
-                GUILayout.Label(item.LocationName ?? "", mutedStyle);
+                GUILayout.Label(new GUIContent(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), tip), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
+                GUILayout.Label(new GUIContent($"from {SafePlayerName(item)}", tip), mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
+                GUILayout.Label(new GUIContent(item.LocationName ?? "", tip), mutedStyle);
                 GUILayout.EndHorizontal();
             }
 
             GUILayout.EndScrollView();
+            DrawTooltip();
         }
 
         #endregion
@@ -946,6 +960,27 @@ namespace ArchiGungeon.UserInterface
 
         #region Helpers
 
+        // IMGUI sets GUI.tooltip for the hovered control; draw it as a box beside the mouse, kept inside the window
+        private void DrawTooltip()
+        {
+            string tip = GUI.tooltip;
+            if (string.IsNullOrEmpty(tip) || Event.current.type != EventType.Repaint)
+            {
+                return;
+            }
+
+            const float width = 380f;
+            float height = tooltipStyle.CalcHeight(new GUIContent(tip), width);
+            Vector2 mouse = Event.current.mousePosition;
+            float x = Mathf.Min(mouse.x + 18f, windowRect.width - width - 8f);
+            float y = mouse.y + 18f;
+            if (y + height > windowRect.height - 8f)
+            {
+                y = Mathf.Max(8f, mouse.y - height - 8f);
+            }
+            GUI.Box(new Rect(x, y, width, height), tip, tooltipStyle);
+        }
+
         private void DrawNotConnected()
         {
             GUILayout.BeginVertical(boxStyle);
@@ -1048,6 +1083,14 @@ namespace ArchiGungeon.UserInterface
             fieldStyle.hover.background = fieldBack;
             fieldStyle.normal.textColor = Color.white;
             fieldStyle.focused.textColor = Color.white;
+
+            tooltipStyle = new GUIStyle(GUI.skin.box)
+            {
+                fontSize = 14, wordWrap = true, richText = true, alignment = TextAnchor.UpperLeft,
+                padding = new RectOffset(10, 10, 8, 8),
+            };
+            tooltipStyle.normal.background = SolidTexture(new Color(0.03f, 0.03f, 0.05f, 0.97f));
+            tooltipStyle.normal.textColor = Color.white;
 
             barBackStyle = new GUIStyle { normal = { background = barBack } };
             barFillStyle = new GUIStyle { normal = { background = barFill } };

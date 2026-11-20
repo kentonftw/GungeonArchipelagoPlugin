@@ -72,6 +72,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UserInterface\TextBoxHandler.cs" />
     <Compile Include="UserInterface\ArchipelagoMenu.cs" />
+    <Compile Include="UserInterface\ItemTooltips.cs" />
     <Compile Include="Character\ElevatorOperator.cs" />
   </ItemGroup>
   <ItemGroup>

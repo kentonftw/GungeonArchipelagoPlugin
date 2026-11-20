@@ -25,6 +25,12 @@ namespace ArchiGungeon.ItemArchipelago
         private static string shortDescription = "A cool item from another world";
         private const string NameKey = "#ARCHIGUN_APITEM_ENCNAME";
         private const string DescriptionKey = "#ARCHIGUN_APITEM_SHORTDESC";
+        private const string EntryKey = "#ARCHIGUN_APITEM_LONGDESC";
+        private const string DefaultEntry = "An item from another world. Picking it up sends it to whoever it belongs to in the multiworld.";
+
+        // What each AP Item picked up this run held, for the death screen recap
+        private static readonly List<string> foundThisRun = new List<string>();
+        private static bool showingRunSummary = false;
 
         // Scouted contents of each AP Item location: written on the network thread, read on the game thread
         private static readonly object previewLock = new object();
@@ -47,8 +53,10 @@ namespace ArchiGungeon.ItemArchipelago
             // Own string keys, so the previews can change the text the game looks up
             item.encounterTrackable.journalData.PrimaryDisplayName = NameKey;
             item.encounterTrackable.journalData.NotificationPanelDescription = DescriptionKey;
+            item.encounterTrackable.journalData.AmmonomiconFullEntry = EntryKey;
             ETGMod.Databases.Strings.Items.Set(NameKey, displayName);
             ETGMod.Databases.Strings.Items.Set(DescriptionKey, shortDescription);
+            ETGMod.Databases.Strings.Items.Set(EntryKey, DefaultEntry);
             item.encounterTrackable.journalData.ClearCache();
 
             item.ShouldBeExcludedFromShops = true;
@@ -164,7 +172,7 @@ namespace ArchiGungeon.ItemArchipelago
         /// <summary>Game thread: applies the next location's preview to the AP Item once it is known.</summary>
         public static void TickPreview()
         {
-            if (!previewDirty || SpawnItemID < 0)
+            if (!previewDirty || SpawnItemID < 0 || showingRunSummary)
             {
                 return;
             }
@@ -193,16 +201,8 @@ namespace ArchiGungeon.ItemArchipelago
 
                 ETGMod.Databases.Strings.Items.Set(NameKey, name);
                 ETGMod.Databases.Strings.Items.Set(DescriptionKey, description);
-                prefab.encounterTrackable.journalData.ClearCache();
-
-                // AP Items already lying around cached the old name
-                foreach (APPickUpItem placed in UnityEngine.Object.FindObjectsOfType<APPickUpItem>())
-                {
-                    if (placed.encounterTrackable != null)
-                    {
-                        placed.encounterTrackable.journalData.ClearCache();
-                    }
-                }
+                ETGMod.Databases.Strings.Items.Set(EntryKey, DefaultEntry);
+                ClearNameCaches(prefab);
             }
             catch (Exception e)
             {
@@ -232,6 +232,13 @@ namespace ArchiGungeon.ItemArchipelago
 
             if(remainingLocationIDs.Count > 0)
             {
+                string held;
+                lock (previewLock)
+                {
+                    held = previewNames.ContainsKey(remainingLocationIDs[0]) ? previewNames[remainingLocationIDs[0]] : "an item for the multiworld";
+                }
+                foundThisRun.Add(held);
+
                 ArchDebugPrint.DebugLog(DebugCategory.ServerSend, $"Sending location ID {remainingLocationIDs[0]}");
                 SessionHandler.DataSender.SendFoundLocationCheck(remainingLocationIDs[0]);
 
@@ -249,6 +256,63 @@ namespace ArchiGungeon.ItemArchipelago
         public static bool HasAPItemChecksRemaining()
         {
             return (remainingLocationIDs.Count > 0);
+        }
+
+        // Names are cached per journal entry: the prefab's, the encounter database's (used by the Ammonomicon and
+        // the death screen) and each AP Item already spawned or held
+        private static void ClearNameCaches(PickupObject prefab)
+        {
+            prefab.encounterTrackable.journalData.ClearCache();
+
+            EncounterDatabaseEntry entry = EncounterDatabase.GetEntry(prefab.encounterTrackable.EncounterGuid);
+            if (entry != null && entry.journalData != null)
+            {
+                entry.journalData.ClearCache();
+            }
+
+            foreach (APPickUpItem placed in UnityEngine.Object.FindObjectsOfType<APPickUpItem>())
+            {
+                if (placed.encounterTrackable != null)
+                {
+                    placed.encounterTrackable.journalData.ClearCache();
+                }
+            }
+        }
+
+        /// <summary>
+        /// On death: every AP Item you're holding shares one name, which was showing the next location's
+        /// preview. Show a recap of what this run's AP Items held instead.
+        /// </summary>
+        public static void ShowRunSummary()
+        {
+            if (SpawnItemID < 0)
+            {
+                return;
+            }
+
+            try
+            {
+                showingRunSummary = true;
+                string count = foundThisRun.Count == 1 ? "1 AP Item" : $"{foundThisRun.Count} AP Items";
+                string list = foundThisRun.Count == 0 ? "None this run." : string.Join("\n", foundThisRun.ToArray());
+
+                ETGMod.Databases.Strings.Items.Set(NameKey, "AP Items");
+                ETGMod.Databases.Strings.Items.Set(DescriptionKey, $"Found {count} this run");
+                ETGMod.Databases.Strings.Items.Set(EntryKey, "This run's AP Items held:\n" + list);
+                ClearNameCaches(PickupObjectDatabase.GetById(SpawnItemID));
+            }
+            catch (Exception e)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"AP Item run summary failed: {e.Message}");
+            }
+        }
+
+        /// <summary>New run: go back to previewing the next location.</summary>
+        public static void ResetForNewRun()
+        {
+            foundThisRun.Clear();
+            showingRunSummary = false;
+            previewDirty = true;
         }
 
         #endregion

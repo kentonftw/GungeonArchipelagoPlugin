@@ -81,10 +81,35 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static System.Random random = new();
         private static readonly Dictionary<int, int> rollsThisRun = new Dictionary<int, int>();
 
+        // What each roll gave this run, for the menu's item tooltips. Key: "case|copy".
+        public struct RollResult { public string Name; public string Description; }
+        private static readonly Dictionary<string, RollResult> resultsThisRun = new Dictionary<string, RollResult>();
+        private static string currentRollKey = null;
+
         /// <summary>Call at the start of each run, before received items are handed out again.</summary>
         public static void ResetRollCounters()
         {
             rollsThisRun.Clear();
+            resultsThisRun.Clear();
+        }
+
+        public static bool TryGetRoll(int itemCase, int copy, out RollResult result)
+        {
+            return resultsThisRun.TryGetValue($"{itemCase}|{copy}", out result);
+        }
+
+        private static void RecordRoll(PickupObject item)
+        {
+            if (currentRollKey == null || item == null)
+            {
+                return;
+            }
+            resultsThisRun[currentRollKey] = new RollResult
+            {
+                Name = ItemTooltips.NameOf(item),
+                Description = ItemTooltips.DescribeGameItem(item),
+            };
+            currentRollKey = null;
         }
 
         private static void StartRoll(int itemCase)
@@ -92,6 +117,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             int copy;
             rollsThisRun.TryGetValue(itemCase, out copy);
             rollsThisRun[itemCase] = copy + 1;
+            currentRollKey = $"{itemCase}|{copy}";
 
             random = new System.Random(StableHash($"{SessionHandler.SeedKey}|{itemCase}|{copy}"));
         }
@@ -158,6 +184,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             }
 
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Giving random gun: {gunToGive.name}");
+            RecordRoll(gunToGive);
             playerToSpawnOn.inventory.AddGunToInventory(gunToGive);
 
             return;
@@ -177,6 +204,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             //ArchipelagoGUI.ConsoleLog(passiveToSpawn.Cool);
             //ItemBuilder.SetCooldownType
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Giving random passive: {passiveToSpawn.name}");
+            RecordRoll(passiveToSpawn);
             playerToSpawnOn.AcquirePassiveItem(passiveToSpawn);
 
             //SpawnObjectPlayerItem.ItemQuality.
@@ -287,6 +315,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
 
+            RecordRoll(PickupObjectDatabase.GetById(itemID));
             GameObject itemToGive = PickupObjectDatabase.GetById(itemID).gameObject;
             LootEngine.SpawnItem(itemToGive, playerToSpawnOn.CenterPosition, Vector2.zero, 0);
         }

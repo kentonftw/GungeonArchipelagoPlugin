@@ -557,6 +557,7 @@ namespace ArchiGungeon.ArchipelagoServer
             IsReverseCurseSetForRun = false;
             RunSetupDoneThisRun = false;
             RandomizedByQualityItems.ResetRollCounters();
+            APPickUpItem.ResetForNewRun();
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
             HandlingDeathlinkEvent = false;
