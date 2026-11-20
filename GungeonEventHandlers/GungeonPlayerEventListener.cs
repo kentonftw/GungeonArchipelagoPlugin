@@ -215,8 +215,18 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             obj.sprite.HeightOffGround -= .5f;
 
-            obj.item = PickupObjectDatabase.GetById(APPickUpItem.SpawnItemID);
-            obj.sprite.FlipY = true;
+            PickupObject apItem = PickupObjectDatabase.GetById(APPickUpItem.SpawnItemID);
+            obj.item = apItem;
+
+            // The shop already drew the original item's sprite (and outline) before this event fires, so
+            // swapping obj.item alone left the old picture. Redraw it as the AP item, with the same outline
+            // the shop uses (ShopItemController.InitializeInternal: black, 0.1, 0.05, NORMAL).
+            if (apItem != null && apItem.sprite != null && obj.sprite != null)
+            {
+                SpriteOutlineManager.RemoveOutlineFromSprite(obj.sprite);
+                obj.sprite.SetSprite(apItem.sprite.Collection, apItem.sprite.spriteId);
+                SpriteOutlineManager.AddOutlineToSprite(obj.sprite, Color.black, 0.1f, 0.05f, SpriteOutlineManager.OutlineType.NORMAL);
+            }
             //obj.sprite.HeightOffGround = .5f;
 
 
