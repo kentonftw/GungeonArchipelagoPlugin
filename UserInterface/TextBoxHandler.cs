@@ -30,11 +30,11 @@ namespace ArchiGungeon.UserInterface
         }
 
 
-        public static void ShowItemEventTextBox(PlayerController playerReference, string textToShow, float textDuration)
+        public static void ShowItemEventTextBox(PlayerController playerReference, string textToShow, float textDuration, bool instant = false)
         {
             Vector2 letterBoxPosition = playerReference.sprite.WorldCenter + new Vector2(0f, -3f);
 
-            TextBoxManager.ShowNote(letterBoxPosition, playerReference.transform, textDuration, textToShow, instant: false);
+            TextBoxManager.ShowNote(letterBoxPosition, playerReference.transform, textDuration, textToShow, instant: instant);
 
             if (!playersWithPossibleTextbox.Contains(playerReference))
             {

@@ -491,14 +491,28 @@ namespace ArchiGungeon.ItemArchipelago
 
         #endregion
 
+        private const float MessageDuration = 3f;
+        private static string lastMessage = null;
+        private static float lastMessageTime = -100f;
+
+        // The departure hooks fire every frame while you stand in a locked elevator. Re-showing the box each
+        // time restarted its typing animation, so it stayed blank; show it once per lock and skip the typing.
         private static void ShowMessage(string text)
         {
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (text == lastMessage && now - lastMessageTime < MessageDuration)
+            {
+                return;
+            }
+            lastMessage = text;
+            lastMessageTime = now;
+
             ArchipelagoGUI.ConsoleLog(text);
 
             PlayerController player = GungeonPlayerEventListener.GetFirstAlivePlayer();
             if (player != null)
             {
-                TextBoxHandler.ShowItemEventTextBox(player, text, 3f);
+                TextBoxHandler.ShowItemEventTextBox(player, text, MessageDuration, instant: true);
             }
         }
     }
