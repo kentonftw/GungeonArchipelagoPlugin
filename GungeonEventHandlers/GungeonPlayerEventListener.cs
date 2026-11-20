@@ -278,13 +278,15 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static bool OnChestPreOpen(bool shouldOpen, Chest chest, PlayerController player)
         {
-            if (SessionHandler.Session == null || SessionHandler.Session.Socket.Connected == false)
+            if(!shouldOpen)
             {
                 return shouldOpen;
             }
 
-            if(!shouldOpen)
+            // Offline: no AP items to place, but still count the chest (saved locally, sent on reconnect)
+            if (SessionHandler.Session == null || SessionHandler.Session.Socket.Connected == false)
             {
+                SaveDataManagement.AddToCountSaveDataEntry(CountStats.ChestsOpened, 1);
                 return shouldOpen;
             }
 
@@ -315,11 +317,12 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static void ModifyChestContentsByChestType(Chest chestToEdit)
         {
             
+            // else-if chain: the rainbow case used to be overwritten by the final else (1 AP item)
             if (chestToEdit.IsRainbowChest)
             {
                 chestToEdit.forceContentIds = new List<int> { APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID };
             }
-            if(chestToEdit.ChestIdentifier == Chest.SpecialChestIdentifier.RAT)
+            else if(chestToEdit.ChestIdentifier == Chest.SpecialChestIdentifier.RAT)
             {
                 chestToEdit.forceContentIds = new List<int> { APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID, APPickUpItem.SpawnItemID };
             }

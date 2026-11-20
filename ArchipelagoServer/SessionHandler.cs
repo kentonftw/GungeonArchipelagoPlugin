@@ -65,6 +65,10 @@ namespace ArchiGungeon.ArchipelagoServer
 
         #region Randomizer Parameter Variables
         public static DeathLinkService DeathLinkService { get; protected set; }
+        // The service exists even with DeathLink off, so sending has to check this
+        private static bool IsDeathLinkEnabled { get; set; } = false;
+        // Set by the network thread, handled on the game thread in TickCheckItemQueue
+        private static string pendingDeathlinkCause = null;
 
         private static bool HandlingDeathlinkEvent { get; set; } = false;
         #endregion
@@ -122,6 +126,8 @@ namespace ArchiGungeon.ArchipelagoServer
             PlayerServerInfo = new PlayerConnectionInfo(ip, port, name, password, RoomSeed);
             ConnectionDataWriter.SaveArchipelagoConnectionSettings(PlayerServerInfo);
 
+            // Send anything found while disconnected first, so the location lists below already count it
+            DataSender.SendPendingChecksAndGoal();
             InitializeAPLocationChecks();
 
             TrapSpawnHandler.SetCanSpawn(true);
@@ -579,6 +585,7 @@ namespace ArchiGungeon.ArchipelagoServer
                 item_add_queue.Clear();
             }
             lastServerItemCounts.Clear();
+            DataSender.ClearPendingChecksAndGoal();
             receivedItemsSlotKey = slotKey;
         }
 
@@ -651,7 +658,10 @@ namespace ArchiGungeon.ArchipelagoServer
             CheckForProgressItems();
 
             IsValidToSpawnItems = true;
-            //CheckReverseCurse();
+
+            // Lost when save data moved to local files (b0aba54); without it Reverse Curse mode never cursed.
+            // Runs after the queue is filled, so received Reverse Curse Reversals are given after the curse.
+            CheckReverseCurse();
         }
 
 
@@ -675,6 +685,8 @@ namespace ArchiGungeon.ArchipelagoServer
 
         public static void TickCheckItemQueue()
         {
+            TickPendingDeathlink();
+
             if (!IsValidToSpawnItems)
             {
                 return;
@@ -715,6 +727,34 @@ namespace ArchiGungeon.ArchipelagoServer
         #region Deathlink
         // DEATHLINK =====================
 
+        private static void TickPendingDeathlink()
+        {
+            string cause = pendingDeathlinkCause;
+            if (cause == null)
+            {
+                return;
+            }
+            pendingDeathlinkCause = null;
+
+            // Nothing to kill outside a run
+            if (GameManager.Instance == null || GameManager.Instance.IsFoyer || GungeonPlayerEventListener.GetFirstAlivePlayer() == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, "Deathlink received outside a run, ignoring");
+                HandlingDeathlinkEvent = false;
+                return;
+            }
+
+            try
+            {
+                ArchipelagoGungeonBridge.DeathlinkKillPlayer(cause);
+            }
+            catch (Exception ex)
+            {
+                HandlingDeathlinkEvent = false;
+                ArchipelagoGUI.ConsoleLog("Exception while handling Deathlink: " + ex.Message);
+            }
+        }
+
         private static void CheckToCreateDeathlink()
         {
             // deathlink
@@ -733,6 +773,7 @@ namespace ArchiGungeon.ArchipelagoServer
         private static void InitializeDeathlink(bool isDeathlinkEnabled)
         {
             DeathLinkService = Session.CreateDeathLinkService();
+            IsDeathLinkEnabled = isDeathlinkEnabled;
 
             if (isDeathlinkEnabled)
             {
@@ -757,14 +798,13 @@ namespace ArchiGungeon.ArchipelagoServer
                 case 0:
                     ArchipelagoGUI.ConsoleLog("Deathlink has been DISABLED");
                     DeathLinkService.DisableDeathLink();
+                    IsDeathLinkEnabled = false;
                     return;
                 case 1:
-                    ArchipelagoGUI.ConsoleLog("Deathlink has been ENABLED");
-                    DeathLinkService.EnableDeathLink();
-                    return;
                 case 2:
                     ArchipelagoGUI.ConsoleLog("Deathlink has been ENABLED");
                     DeathLinkService.EnableDeathLink();
+                    IsDeathLinkEnabled = true;
                     return;
                 default:
                     ArchipelagoGUI.ConsoleLog("Invalid deathlink mode setting!");
@@ -868,6 +908,12 @@ namespace ArchiGungeon.ArchipelagoServer
                 return;
             }
 
+            // Not in the Breach: the curse belongs on the character that's actually in the run
+            if (GameManager.Instance == null || GameManager.Instance.IsFoyer || GungeonPlayerEventListener.GetFirstAlivePlayer() == null)
+            {
+                return;
+            }
+
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, $"Checking for reverse curse");
             int reverseCurseModeValue = Convert.ToInt32(PlayerSlotSettings["ReverseCurse"]);
 
@@ -951,18 +997,84 @@ namespace ArchiGungeon.ArchipelagoServer
 
             #region High Priority Send Functions
             // High priority generally meaning, randomizer hard stops if these fail communication
+            // Checks and goal completion found while disconnected, sent on the next connect to the same slot.
+            // Before this they threw (Session was null) inside the game code that found them, and were lost.
+            private static readonly List<long> pendingLocationChecks = new List<long>();
+            private static bool isGoalCompletionPending = false;
+
+            private static bool IsConnected
+            {
+                get { return Session != null && Session.Socket.Connected; }
+            }
+
             public static void SendFoundLocationCheck(long idToSend)
             {
-                //ScoutFoundLocationCheck(idToSend);
-                Session.Locations.CompleteLocationChecks(idToSend);
-
+                SendFoundLocationCheck(new long[] { idToSend });
                 return;
             }
 
             public static void SendFoundLocationCheck(long[] idArray)
             {
-                Session.Locations.CompleteLocationChecks(idArray);
+                if (idArray == null || idArray.Length == 0)
+                {
+                    return;
+                }
+
+                if (IsConnected)
+                {
+                    try
+                    {
+                        Session.Locations.CompleteLocationChecks(idArray);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        ArchDebugPrint.DebugLog(DebugCategory.ServerSend, $"Sending checks failed, keeping them for later: {ex.Message}");
+                    }
+                }
+
+                lock (pendingLocationChecks)
+                {
+                    pendingLocationChecks.AddRange(idArray);
+                }
+                ArchipelagoGUI.ConsoleLog($"Not connected: {idArray.Length} check(s) will be sent when you reconnect");
                 return;
+            }
+
+            public static void SendPendingChecksAndGoal()
+            {
+                if (!IsConnected)
+                {
+                    return;
+                }
+
+                long[] toSend;
+                lock (pendingLocationChecks)
+                {
+                    toSend = pendingLocationChecks.ToArray();
+                    pendingLocationChecks.Clear();
+                }
+
+                if (toSend.Length > 0)
+                {
+                    ArchipelagoGUI.ConsoleLog($"Sending {toSend.Length} check(s) found while disconnected");
+                    SendFoundLocationCheck(toSend);
+                }
+
+                if (isGoalCompletionPending)
+                {
+                    isGoalCompletionPending = false;
+                    SendGameCompletion();
+                }
+            }
+
+            public static void ClearPendingChecksAndGoal()
+            {
+                lock (pendingLocationChecks)
+                {
+                    pendingLocationChecks.Clear();
+                }
+                isGoalCompletionPending = false;
             }
 
             public static void SendDeathlink(string playerName = "Gungeoneer", string causeOfDeath = "Died to Gungeon")
@@ -970,6 +1082,11 @@ namespace ArchiGungeon.ArchipelagoServer
                 if (DeathLinkService == null || Session == null)
                 {
                     ArchipelagoGUI.ConsoleLog("Tried to send Deathlink but not connected!");
+                    return;
+                }
+
+                if (!IsDeathLinkEnabled || !(Session.Socket.Connected))
+                {
                     return;
                 }
 
@@ -1013,6 +1130,13 @@ namespace ArchiGungeon.ArchipelagoServer
 
             private static void SendGameCompletion()
             {
+                if (!IsConnected)
+                {
+                    isGoalCompletionPending = true;
+                    ArchipelagoGUI.ConsoleLog("Goal complete! It will be sent when you reconnect");
+                    return;
+                }
+
                 StatusUpdatePacket statusUpdatePacket = new StatusUpdatePacket();
                 statusUpdatePacket.Status = ArchipelagoClientState.ClientGoal;
                 Session.Socket.SendPacket(statusUpdatePacket);
@@ -1065,11 +1189,8 @@ namespace ArchiGungeon.ArchipelagoServer
                 HandlingDeathlinkEvent = true;
                 ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, $"Received DeathLink");
 
-                string playerCauser = deathLink.Source;
-
-                string deathlinkCause = $"Deathlink by {playerCauser}";
-
-                ArchipelagoGungeonBridge.DeathlinkKillPlayer(deathlinkCause);
+                // This runs on the network thread; the kill happens on the game thread in TickCheckItemQueue
+                pendingDeathlinkCause = $"Deathlink by {deathLink.Source}";
                 return;
             }
 
