@@ -75,18 +75,49 @@ namespace ArchiGungeon.GungeonEventHandlers
     {
         private static System.Random random = new();
 
+        // The game's pickers return null when nothing of that quality is eligible (e.g. every S-tier passive is
+        // still locked on this save), which crashed the hand-out and lost the item. Retry, then pick from the
+        // whole database ourselves.
         private static Gun GetRandomGunByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            Gun gunToReturn = PickupObjectDatabase.GetRandomGunOfQualities(random, new List<int>(), itemQuals);
-
-            return gunToReturn;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                Gun gun = PickupObjectDatabase.GetRandomGunOfQualities(random, new List<int>(), itemQuals);
+                if (gun != null)
+                {
+                    return gun;
+                }
+            }
+            return PickFromDatabase<Gun>(itemQuals);
         }
 
         private static PassiveItem GetRandomPassiveByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            // don't understand actives yet
-            PassiveItem passiveItem = PickupObjectDatabase.GetRandomPassiveOfQualities(random, new List<int>(), itemQuals);
-            return passiveItem;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                PassiveItem passive = PickupObjectDatabase.GetRandomPassiveOfQualities(random, new List<int>(), itemQuals);
+                if (passive != null)
+                {
+                    return passive;
+                }
+            }
+            return PickFromDatabase<PassiveItem>(itemQuals);
+        }
+
+        private static T PickFromDatabase<T>(PickupObject.ItemQuality[] itemQuals) where T : PickupObject
+        {
+            List<T> pool = new List<T>();
+            foreach (PickupObject pickup in PickupObjectDatabase.Instance.Objects)
+            {
+                T item = pickup as T;
+                if (item != null && itemQuals.Contains(item.quality) && item.encounterTrackable != null)
+                {
+                    pool.Add(item);
+                }
+            }
+
+            ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Random {typeof(T).Name} fallback pool: {pool.Count}");
+            return pool.Count > 0 ? pool[random.Next(pool.Count)] : null;
         }
 
 
@@ -94,6 +125,11 @@ namespace ArchiGungeon.GungeonEventHandlers
         {
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
             Gun gunToGive = GetRandomGunByQualities(itemquals);
+            if (playerToSpawnOn == null || gunToGive == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Couldn't give random gun (no player or no gun found)");
+                return;
+            }
 
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Giving random gun: {gunToGive.name}");
             playerToSpawnOn.inventory.AddGunToInventory(gunToGive);
@@ -106,6 +142,11 @@ namespace ArchiGungeon.GungeonEventHandlers
         {
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
             PassiveItem passiveToSpawn = GetRandomPassiveByQualities(itemquals);
+            if (playerToSpawnOn == null || passiveToSpawn == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Couldn't give random passive (no player or no item found)");
+                return;
+            }
 
             //ArchipelagoGUI.ConsoleLog(passiveToSpawn.Cool);
             //ItemBuilder.SetCooldownType
