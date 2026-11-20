@@ -114,11 +114,16 @@ namespace ArchiGungeon.Character
                     return;
                 }
 
-                // Stand a little to the left of the elevator, on the nearest open floor
-                Vector2 ideal = elevatorCenter + new Vector2(-3.5f, -1.5f);
-                IntVector2 cell = elevatorRoom.GetBestRewardLocation(new IntVector2(2, 2), ideal, false);
+                // Right beside the elevator's platform; the room's reward spot is only a fallback
+                IntVector2 cell;
+                if (!TryFindSpotBesideElevator(elevator, elevatorRoom, out cell))
+                {
+                    cell = elevatorRoom.GetBestRewardLocation(new IntVector2(2, 2), elevatorCenter + new Vector2(-3.5f, -1.5f), false);
+                }
 
-                GameObject instance = UnityEngine.Object.Instantiate(prefab, cell.ToVector3(), Quaternion.identity);
+                // Centre the 26px-wide sprite on the 2-tile footprint
+                Vector3 position = cell.ToVector3() + new Vector3((2f - 26f / 16f) / 2f, 0f, 0f);
+                GameObject instance = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
                 instance.SetActive(true);
 
                 ElevatorOperator npc = instance.GetComponent<ElevatorOperator>();
@@ -131,6 +136,92 @@ namespace ArchiGungeon.Character
             {
                 ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Elevator Operator spawn failed: {e}");
             }
+        }
+
+        /// <summary>
+        /// Looks for a free 2x2 patch of floor hugging the elevator, preferring its lower-left side (where you
+        /// walk up to it), then the lower-right, then anywhere within a few tiles.
+        /// </summary>
+        private static bool TryFindSpotBesideElevator(ElevatorDepartureController elevator, RoomHandler room, out IntVector2 result)
+        {
+            result = IntVector2.Zero;
+            DungeonData data = GameManager.Instance.Dungeon.data;
+
+            Vector2 min, max;
+            if (elevator.sprite != null)
+            {
+                min = elevator.sprite.WorldBottomLeft;
+                max = elevator.sprite.WorldTopRight;
+            }
+            else
+            {
+                min = elevator.transform.position;
+                max = min + new Vector2(4f, 4f);
+            }
+
+            IntVector2 eMin = min.ToIntVector2(VectorConversions.Floor);
+            IntVector2 eMax = max.ToIntVector2(VectorConversions.Ceil);
+
+            Vector2 targetLeft = new Vector2(min.x - 1.5f, min.y + 0.5f);
+            Vector2 targetRight = new Vector2(max.x + 0.5f, min.y + 0.5f);
+
+            List<IntVector2> candidates = new List<IntVector2>();
+            for (int x = eMin.x - 5; x <= eMax.x + 4; x++)
+            {
+                for (int y = eMin.y - 4; y <= eMin.y + 4; y++)
+                {
+                    candidates.Add(new IntVector2(x, y));
+                }
+            }
+
+            candidates.Sort((a, b) => Score(a, targetLeft, targetRight).CompareTo(Score(b, targetLeft, targetRight)));
+
+            foreach (IntVector2 cell in candidates)
+            {
+                if (IsFreeFootprint(data, room, cell, eMin, eMax))
+                {
+                    result = cell;
+                    for (int dx = 0; dx < 2; dx++)
+                    {
+                        data[cell + new IntVector2(dx, 0)].isOccupied = true;
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static float Score(IntVector2 cell, Vector2 left, Vector2 right)
+        {
+            Vector2 c = cell.ToVector2() + Vector2.one;
+            // Small bias so the left side wins a tie
+            return Mathf.Min(Vector2.Distance(c, left), Vector2.Distance(c, right) + 0.75f);
+        }
+
+        private static bool IsFreeFootprint(DungeonData data, RoomHandler room, IntVector2 origin, IntVector2 eMin, IntVector2 eMax)
+        {
+            for (int dx = 0; dx < 2; dx++)
+            {
+                for (int dy = 0; dy < 2; dy++)
+                {
+                    IntVector2 c = origin + new IntVector2(dx, dy);
+                    if (c.x >= eMin.x && c.x < eMax.x && c.y >= eMin.y && c.y < eMax.y)
+                    {
+                        return false; // on the elevator itself
+                    }
+                    if (!data.CheckInBoundsAndValid(c))
+                    {
+                        return false;
+                    }
+                    CellData cell = data[c];
+                    if (cell == null || cell.type != CellType.FLOOR || cell.isOccupied || cell.isExitCell || cell.isDoorFrameCell
+                        || cell.IsPlayerInaccessible || cell.parentRoom != room)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         private void Place(RoomHandler parentRoom)
@@ -333,11 +424,40 @@ namespace ArchiGungeon.Character
             }
 
             List<string> unmet = ArchipelagoCompletion.GetAllUnmetCountsForGoals();
-            result.Add(unmet.Count == 0
-                ? "You've done everything your goal needs. Go finish it!"
-                : "Still on your list: " + string.Join(", ", unmet.ToArray()) + ".");
+            if (unmet.Count == 0)
+            {
+                result.Add("You've done everything your goal needs. Go finish it!");
+            }
+            else
+            {
+                AddWrappedList(result, "Still on your list: ", unmet);
+            }
 
             return result;
+        }
+
+        // The speech bubble only fits about two short lines, so long lists are spread over several bubbles
+        private const int MaxBubbleChars = 70;
+
+        private static void AddWrappedList(List<string> result, string prefix, List<string> items)
+        {
+            string current = prefix;
+            bool first = true;
+            for (int i = 0; i < items.Count; i++)
+            {
+                string piece = (first ? "" : ", ") + items[i];
+                if (!first && current.Length + piece.Length + 1 > MaxBubbleChars)
+                {
+                    result.Add(current + ",");
+                    current = "Also: " + items[i];
+                }
+                else
+                {
+                    current += piece;
+                }
+                first = false;
+            }
+            result.Add(current + ".");
         }
 
         private static string DescribeChecks()
@@ -349,7 +469,7 @@ namespace ArchiGungeon.Character
                 AddCount(parts, locations, "AP items", 8755000, 8755199);
                 AddCount(parts, locations, "bosses", 8756000, 8756099);
                 AddCount(parts, locations, "kill goals", 8755900, 8755999);
-                return parts.Count == 0 ? "" : "Checks so far: " + string.Join(", ", parts.ToArray()) + ".";
+                return parts.Count == 0 ? "" : "Checks done: " + string.Join(", ", parts.ToArray()) + ".";
             }
             catch (Exception)
             {
