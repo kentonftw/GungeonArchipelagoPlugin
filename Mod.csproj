@@ -311,4 +311,12 @@
     <Error Condition="!Exists('packages\BepInEx.Core.5.4.21\build\BepInEx.Core.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\BepInEx.Core.5.4.21\build\BepInEx.Core.targets'))" />
     <Error Condition="!Exists('packages\ILRepack.2.0.41\build\ILRepack.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\ILRepack.2.0.41\build\ILRepack.props'))" />
   </Target>
+  <!-- After every build, merge ArchiGungeon.dll into ArchipelaGun.dll and install it into the r2modman profile.
+       Change the profile with R2ModmanProfile, or turn this off with SkipRepack=true. See _DLLRepack\Repack.ps1. -->
+  <PropertyGroup>
+    <R2ModmanProfile Condition="'$(R2ModmanProfile)' == ''">Archigun</R2ModmanProfile>
+  </PropertyGroup>
+  <Target Name="RepackAndInstall" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT' And '$(SkipRepack)' != 'true'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)_DLLRepack\Repack.ps1&quot; -Configuration $(Configuration) -ProfileName &quot;$(R2ModmanProfile)&quot;" />
+  </Target>
 </Project>
