@@ -31,6 +31,11 @@ namespace ArchiGungeon.ItemArchipelago
         public static bool SellCreepsFavorEnabled { get; private set; }
 
         private static bool bulletGivenThisRun = false;
+
+        // Every received item is re-handled at the start of each run, so only announce unlocks that are new.
+        private static int announcedChamberAccess = 0;
+        private static int announcedBulletParts = 0;
+        private static bool announcedFavor = false;
         private static bool oldCrestGivenThisRun = false;
 
         // Scene name of the Gungeon Proper (Chamber 2), where the Old Crest's altar is.
@@ -158,19 +163,31 @@ namespace ArchiGungeon.ItemArchipelago
         {
             if (itemID == ChamberAccessID)
             {
-                ShowMessage($"Chamber access {ChamberAccessCount}/{MaxChamberAccess}");
+                if (ChamberAccessCount > announcedChamberAccess)
+                {
+                    announcedChamberAccess = ChamberAccessCount;
+                    ShowMessage($"Chamber access {ChamberAccessCount}/{MaxChamberAccess}");
+                }
                 return true;
             }
 
             if (itemID == SellCreepsFavorID)
             {
-                ShowMessage("The Sell Creep owes you a favor");
+                if (!announcedFavor)
+                {
+                    announcedFavor = true;
+                    ShowMessage("The Sell Creep owes you a favor");
+                }
                 return true;
             }
 
             if (Array.IndexOf(BulletPartIDs, itemID) >= 0)
             {
-                ShowMessage($"Bullet part {BulletPartCount}/{BulletPartIDs.Length}");
+                if (BulletPartCount > announcedBulletParts)
+                {
+                    announcedBulletParts = BulletPartCount;
+                    ShowMessage($"Bullet part {BulletPartCount}/{BulletPartIDs.Length}");
+                }
                 GiveBulletIfReady();
                 return true;
             }
