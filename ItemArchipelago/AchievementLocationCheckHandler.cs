@@ -29,6 +29,7 @@ namespace ArchiGungeon.ItemArchipelago
             {CountStats.FloorAbbeyClears, 8755840},
             {CountStats.FloorRatClears, 8755860},
             {CountStats.FloorDeptClears, 8755880},
+            {CountStats.EnemyKills, 8755900},
         };
 
         private static Dictionary<CountStats, List<long>> StatToLocationIDs = new Dictionary<CountStats, List<long>>();

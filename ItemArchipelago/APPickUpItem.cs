@@ -22,6 +22,15 @@ namespace ArchiGungeon.ItemArchipelago
         public static int SpawnItemID = -1;
 
         private static string displayName = "AP Item";
+        private static string shortDescription = "A cool item from another world";
+        private const string NameKey = "#ARCHIGUN_APITEM_ENCNAME";
+        private const string DescriptionKey = "#ARCHIGUN_APITEM_SHORTDESC";
+
+        // Scouted contents of each AP Item location: written on the network thread, read on the game thread
+        private static readonly object previewLock = new object();
+        private static Dictionary<long, string> previewNames = new Dictionary<long, string>();
+        private static Dictionary<long, string> previewDescriptions = new Dictionary<long, string>();
+        private static bool previewDirty = false;
         private static string spriteDirectory = "ArchiGungeon/Resources/archipelago.png";
 
         public static void RegisterItemBase()
@@ -33,7 +42,14 @@ namespace ArchiGungeon.ItemArchipelago
 
             ItemBuilder.AddSpriteToObject(displayName, spriteDirectory, obj);
 
-            ItemBuilder.SetupItem(item, "A crossover!", "A cool item from another world", ArchipelaGunPlugin.MOD_ITEM_PREFIX);
+            ItemBuilder.SetupItem(item, "A crossover!", shortDescription, ArchipelaGunPlugin.MOD_ITEM_PREFIX);
+
+            // Own string keys, so the previews can change the text the game looks up
+            item.encounterTrackable.journalData.PrimaryDisplayName = NameKey;
+            item.encounterTrackable.journalData.NotificationPanelDescription = DescriptionKey;
+            ETGMod.Databases.Strings.Items.Set(NameKey, displayName);
+            ETGMod.Databases.Strings.Items.Set(DescriptionKey, shortDescription);
+            item.encounterTrackable.journalData.ClearCache();
 
             item.ShouldBeExcludedFromShops = true;
             item.CanBeDropped = false;
@@ -53,6 +69,10 @@ namespace ArchiGungeon.ItemArchipelago
         #region Item Behavior
         public static void RegisterAPItemLocations(int APItemCount)
         {
+            // Reconnecting registers again; without clearing, every ID was listed twice and the
+            // second copies re-sent locations that were already checked
+            remainingLocationIDs.Clear();
+
             for (int i = 0; i < APItemCount; i++)
             {
                 remainingLocationIDs.Add(APItemStartID + i);
@@ -69,9 +89,125 @@ namespace ArchiGungeon.ItemArchipelago
                     remainingLocationIDs.Remove(item);
                 }
             }
-           
+
+            ScoutRemainingLocations();
 
             return;
+        }
+
+        #endregion
+
+        #region Item Previews
+        // Every AP Item hands out the next unchecked location, so the item's name and description are set
+        // to what that location holds: the shop, the pickup popup and the hover text then show it.
+
+        private static void ScoutRemainingLocations()
+        {
+            lock (previewLock)
+            {
+                previewNames.Clear();
+                previewDescriptions.Clear();
+                previewDirty = true;
+            }
+
+            if (remainingLocationIDs.Count == 0)
+            {
+                return;
+            }
+
+            int ownSlot = SessionHandler.Session.ConnectionInfo.Slot;
+
+            try
+            {
+                SessionHandler.Session.Locations.ScoutLocationsAsync(scouted =>
+                {
+                    lock (previewLock)
+                    {
+                        foreach (var entry in scouted)
+                        {
+                            var info = entry.Value;
+                            string itemName = info.ItemName ?? $"Item {info.ItemId}";
+                            bool isOwn = info.Player != null && info.Player.Slot == ownSlot;
+                            string owner = info.Player != null ? info.Player.Name : "someone";
+
+                            previewNames[entry.Key] = isOwn ? itemName : $"{itemName} for {owner}";
+                            previewDescriptions[entry.Key] = $"{DescribeImportance(info.Flags)}" + (isOwn ? "" : $" ({info.ItemGame})");
+                        }
+
+                        previewDirty = true;
+                    }
+                }, remainingLocationIDs.ToArray());
+            }
+            catch (Exception e)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"AP Item scout failed: {e.Message}");
+            }
+        }
+
+        private static string DescribeImportance(Archipelago.MultiClient.Net.Enums.ItemFlags flags)
+        {
+            if ((flags & Archipelago.MultiClient.Net.Enums.ItemFlags.Advancement) != 0)
+            {
+                return "Progression";
+            }
+            if ((flags & Archipelago.MultiClient.Net.Enums.ItemFlags.Trap) != 0)
+            {
+                return "Trap?";
+            }
+            if ((flags & Archipelago.MultiClient.Net.Enums.ItemFlags.NeverExclude) != 0)
+            {
+                return "Useful";
+            }
+            return "Filler";
+        }
+
+        /// <summary>Game thread: applies the next location's preview to the AP Item once it is known.</summary>
+        public static void TickPreview()
+        {
+            if (!previewDirty || SpawnItemID < 0)
+            {
+                return;
+            }
+
+            string name = displayName;
+            string description = shortDescription;
+
+            lock (previewLock)
+            {
+                previewDirty = false;
+
+                if (remainingLocationIDs.Count > 0 && previewNames.ContainsKey(remainingLocationIDs[0]))
+                {
+                    name = previewNames[remainingLocationIDs[0]];
+                    description = previewDescriptions[remainingLocationIDs[0]];
+                }
+            }
+
+            try
+            {
+                PickupObject prefab = PickupObjectDatabase.GetById(SpawnItemID);
+                if (prefab == null || prefab.encounterTrackable == null)
+                {
+                    return;
+                }
+
+                ETGMod.Databases.Strings.Items.Set(NameKey, name);
+                ETGMod.Databases.Strings.Items.Set(DescriptionKey, description);
+                prefab.encounterTrackable.journalData.ClearCache();
+
+                // AP Items already lying around cached the old name
+                foreach (APPickUpItem placed in UnityEngine.Object.FindObjectsOfType<APPickUpItem>())
+                {
+                    if (placed.encounterTrackable != null)
+                    {
+                        placed.encounterTrackable.journalData.ClearCache();
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"AP Item preview failed: {e.Message}");
+            }
         }
 
 
@@ -100,6 +236,9 @@ namespace ArchiGungeon.ItemArchipelago
                 SessionHandler.DataSender.SendFoundLocationCheck(remainingLocationIDs[0]);
 
                 remainingLocationIDs.RemoveAt(0);
+
+                // The next AP Item holds the next location
+                previewDirty = true;
             }
 
             //handle edge case of user finishing items

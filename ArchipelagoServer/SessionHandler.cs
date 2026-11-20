@@ -357,6 +357,12 @@ namespace ArchiGungeon.ArchipelagoServer
             int userAchievementCase = Convert.ToInt32(PlayerSlotSettings["AchievementChecks"]);
             CountGoalManager.SetGoalList(userAchievementCase);
 
+            // Older APWorlds, or this option off: those locations don't exist in the seed
+            if (!ProgressionUnlocks.EnemyKillChecksEnabled)
+            {
+                CountGoalManager.RemoveStatGoals(CountStats.EnemyKills);
+            }
+
             List<CountStats> countStatLocationChecks = CountGoalManager.GetListOfStatsWithGoals();
             foreach (CountStats stats in countStatLocationChecks)
             {
@@ -658,6 +664,7 @@ namespace ArchiGungeon.ArchipelagoServer
             CheckForProgressItems();
 
             IsValidToSpawnItems = true;
+            PersistentUpgrades.ApplyPending();
 
             // Lost when save data moved to local files (b0aba54); without it Reverse Curse mode never cursed.
             // Runs after the queue is filled, so received Reverse Curse Reversals are given after the curse.

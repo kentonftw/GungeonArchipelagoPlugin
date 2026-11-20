@@ -47,6 +47,7 @@ namespace ArchiGungeon.Data
             { CountStats.PastPilot, new CountGoalServerKeys("PastPilot")},
             { CountStats.PastRobot, new CountGoalServerKeys("PastRobot")},
             { CountStats.PastKills, new CountGoalServerKeys("PastKills")},
+            { CountStats.EnemyKills, new CountGoalServerKeys("EnemyKills")},
         };
 
         #endregion
@@ -85,6 +86,7 @@ namespace ArchiGungeon.Data
             { CountStats.PastPilot, 0},
             { CountStats.PastRobot, 0},
             { CountStats.PastKills, 0},
+            { CountStats.EnemyKills, 0},
         };
         private static Dictionary<CountStats, List<int>> LocationCheckGoals { get; set; } = new Dictionary<CountStats, List<int>>();
 
@@ -108,6 +110,7 @@ namespace ArchiGungeon.Data
             { CountStats.FloorAbbeyClears,   new List<int>{1}  },
 
             { CountStats.PastKills, new List<int>{1}  },
+            { CountStats.EnemyKills, new List<int>{ 25, 75, 150 } },
         };
 
         private static Dictionary<CountStats, List<int>> StandardGoals { get; } = new Dictionary<CountStats, List<int>>()
@@ -129,6 +132,7 @@ namespace ArchiGungeon.Data
             { CountStats.FloorDeptClears, new List<int>{1}  },
 
             { CountStats.PastKills, new List<int>{1, 2, 3, 4}  },
+            { CountStats.EnemyKills, new List<int>{ 25, 75, 150, 250, 400, 600 } },
         };
 
         private static Dictionary<CountStats, List<int>> MarathonGoals { get; } = new Dictionary<CountStats, List<int>>()
@@ -150,6 +154,7 @@ namespace ArchiGungeon.Data
             { CountStats.FloorDeptClears, new List<int>{1, 2}  },
 
             { CountStats.PastKills, new List<int>{1, 2, 3, 4, 5, 6}  },
+            { CountStats.EnemyKills, new List<int>{ 25, 75, 150, 250, 400, 600, 850, 1100, 1400, 1750 } },
         };
 
         private static Dictionary<CountStats, string> GoalsFormattedText { get; } = new Dictionary<CountStats, string>
@@ -171,6 +176,7 @@ namespace ArchiGungeon.Data
             { CountStats.FloorDeptClears, "R&G Dept." },
 
             { CountStats.PastKills, "Kill Pasts" },
+            { CountStats.EnemyKills, "Kill enemies" },
         };
         #endregion
 
@@ -178,20 +184,27 @@ namespace ArchiGungeon.Data
         public static void SetGoalList(int goalCase)
         {
             ArchDebugPrint.DebugLog(DebugCategory.CountingGoal, $"Getting goal case list: {goalCase}");
+            Dictionary<CountStats, List<int>> source;
             switch (goalCase)
             {
                 case 0:
-                    LocationCheckGoals = ShortGoals;
-                    return;
-                case 1:
-                    LocationCheckGoals = StandardGoals;
-                    return;
-                case 2:
-                    LocationCheckGoals = MarathonGoals;
-                    return;
-                default:
-                    LocationCheckGoals = StandardGoals;
+                    source = ShortGoals;
                     break;
+                case 2:
+                    source = MarathonGoals;
+                    break;
+                default:
+                    source = StandardGoals;
+                    break;
+            }
+
+            // Copy: RemoveClearedGoals removes entries as checks are sent. Handing out the shared tables let
+            // that change them for good, so after a reconnect the rebuilt location IDs no longer lined up
+            // with the remaining goals and later checks re-sent early locations instead.
+            LocationCheckGoals = new Dictionary<CountStats, List<int>>();
+            foreach (KeyValuePair<CountStats, List<int>> entry in source)
+            {
+                LocationCheckGoals[entry.Key] = new List<int>(entry.Value);
             }
 
             return;
@@ -241,7 +254,23 @@ namespace ArchiGungeon.Data
 
         public static void SetFullCountSaveData(Dictionary<CountStats, int> dataToLoad)
         {
-            CountSaveDataDict = dataToLoad;
+            // Merge rather than replace: a save written before a stat existed (e.g. EnemyKills) would
+            // otherwise be missing it, and looking it up would throw.
+            if (dataToLoad == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<CountStats, int> entry in dataToLoad)
+            {
+                CountSaveDataDict[entry.Key] = entry.Value;
+            }
+        }
+
+        /// <summary>Drops a stat's checks, for check types the APWorld didn't create.</summary>
+        public static void RemoveStatGoals(CountStats stat)
+        {
+            LocationCheckGoals.Remove(stat);
         }
 
         public static int AddToGoalCount(CountStats statToModify, int addAmount)

@@ -32,6 +32,9 @@ namespace ArchiGungeon.ItemArchipelago
         public static bool SellCreepsFavorEnabled { get; private set; }
         public static bool AllowGlitchChestSkips { get; private set; }
         public static bool AllowTeleporterSkips { get; private set; }
+        public static bool BossChecksEnabled { get; private set; }
+        public static bool EnemyKillChecksEnabled { get; private set; }
+        public static bool PersistentUpgradesEnabled { get; private set; }
 
         private static bool bulletGivenThisRun = false;
 
@@ -89,6 +92,9 @@ namespace ArchiGungeon.ItemArchipelago
             SellCreepsFavorEnabled = ReadFlag(slotData, "SellCreepsFavor");
             AllowGlitchChestSkips = ReadFlag(slotData, "AllowGlitchChestSkips");
             AllowTeleporterSkips = ReadFlag(slotData, "AllowTeleporterSkips");
+            BossChecksEnabled = ReadFlag(slotData, "BossChecks");
+            EnemyKillChecksEnabled = ReadFlag(slotData, "EnemyKillChecks");
+            PersistentUpgradesEnabled = ReadFlag(slotData, "PersistentUpgrades");
 
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState,
                 $"Progression options - chamber locks: {ChamberLocksEnabled}, bullet parts: {BulletPartsEnabled}, sell creep's favor: {SellCreepsFavorEnabled}");
@@ -103,6 +109,7 @@ namespace ArchiGungeon.ItemArchipelago
         {
             bulletGivenThisRun = false;
             oldCrestGivenThisRun = false;
+            PersistentUpgrades.ResetForNewRun();
         }
 
         #endregion

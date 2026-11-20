@@ -167,6 +167,12 @@ namespace ArchiGungeon.ArchipelagoServer
                 matchedItem = true;
             }
 
+            // Max health, armor, blanks, casings, keys
+            if (!matchedItem && PersistentUpgrades.HandleReceivedItem(itemIdToCheck))
+            {
+                matchedItem = true;
+            }
+
 
             return matchedItem;
         }
