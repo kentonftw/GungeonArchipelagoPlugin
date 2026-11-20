@@ -186,6 +186,7 @@ namespace ArchiGungeon.ArchipelagoServer
             PlayerSlotSettings = Session.DataStorage.GetSlotData();
             RoomSeed = Session.RoomState.Seed;
             SetPlayerCompletionGoalsDataFromSlotData();
+            ProgressionUnlocks.LoadSlotSettings(PlayerSlotSettings);
 
             foreach (string key in PlayerSlotSettings.Keys)
             {
@@ -425,8 +426,30 @@ namespace ArchiGungeon.ArchipelagoServer
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
             HandlingDeathlinkEvent = false;
+            ProgressionUnlocks.ResetForNewRun();
 
             return;
+        }
+
+        /// <summary>How many copies of an item ID have been received from the server (persists across runs).</summary>
+        public static int CountReceivedItem(long itemId)
+        {
+            int count = 0;
+            // Index loop: items can be appended from the network thread while this runs.
+            for (int i = 0; i < allItemsReceivedFromServer.Count; i++)
+            {
+                if (allItemsReceivedFromServer[i].ItemId == itemId)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        public static bool IsPastGoalEnabled()
+        {
+            string key = GameCompletionGoalKeys[PlayerCompletionGoals.PastsFull];
+            return PlayerSlotSettings.ContainsKey(key) && Convert.ToInt32(PlayerSlotSettings[key]) != 0;
         }
 
         public static void RetrieveItemsFromServer()
@@ -536,10 +559,8 @@ namespace ArchiGungeon.ArchipelagoServer
                 return;
             }
 
-            if (Convert.ToInt32(PlayerSlotSettings[GameCompletionGoalKeys[PlayerCompletionGoals.PastsFull]]) != 0)
-            {
-                ProgressionItemSpawnHandler.GivePastBullet();
-            }
+            // Only once all four bullet parts are received when the Bullet Parts option is on
+            ProgressionUnlocks.GiveBulletIfReady();
 
             if (Convert.ToInt32(PlayerSlotSettings[GameCompletionGoalKeys[PlayerCompletionGoals.AdvancedGungeon]]) == 1)
             {

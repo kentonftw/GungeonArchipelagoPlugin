@@ -140,6 +140,12 @@ namespace ArchiGungeon.ArchipelagoServer
                 matchedItem = true;
             }
 
+            // Chamber access, bullet parts, Sell Creep's Favor, Old Crest
+            if (!matchedItem && ProgressionUnlocks.HandleReceivedItem(itemIdToCheck))
+            {
+                matchedItem = true;
+            }
+
 
             return matchedItem;
         }

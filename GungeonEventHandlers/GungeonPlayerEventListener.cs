@@ -500,6 +500,8 @@ namespace ArchiGungeon.GungeonEventHandlers
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Floor loaded: {lastFloorLoaded}");
 
             SaveDataManagement.SaveCurrentRandomizerProgress();
+            ProgressionUnlocks.OnFloorLoaded(levelDef.dungeonSceneName);
+
             if (characterPastFloors.Contains(levelDef.dungeonSceneName))
             {
                 ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Loading past: {lastFloorLoaded}");
