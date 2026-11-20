@@ -320,7 +320,8 @@ namespace ArchiGungeon.Data
             {
                 List<int> goalCount = LocationCheckGoals[saveCountStats];
 
-                if(goalCount.Count > 1 && GoalsFormattedText.ContainsKey(saveCountStats))
+                // > 0: a check type with exactly one check left (e.g. Rat Lair, R&G Dept.) was hidden
+                if(goalCount.Count > 0 && GoalsFormattedText.ContainsKey(saveCountStats))
                 {
                     formatList.Add(GoalsFormattedText[saveCountStats]);
                 }
