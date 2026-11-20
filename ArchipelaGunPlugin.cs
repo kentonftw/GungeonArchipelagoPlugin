@@ -92,6 +92,7 @@ namespace ArchiGungeon
         {
             ArchipelagoModMenu = new ArchipelagoGUI();
             ArchipelagoModMenu.Start();
+            ArchipelagoMenu.Initialize(gameObject, Config);
         }
 
         // Setup functions after instancing all needed functions to prevent missing reference runtime errors

@@ -61,6 +61,31 @@ namespace ArchiGungeon.ArchipelagoServer
 
         private static bool IsProgressItemsGiven { get; set; } = false;
         public static bool IsValidToSpawnItems { get; private set; } = false;
+
+        // ---- shown by the ArchipelaGun menu
+        public static bool IsConnected
+        {
+            get { return Session != null && Session.Socket != null && Session.Socket.Connected; }
+        }
+        public static string ConnectedSlotName { get; private set; } = "";
+        public static string LastConnectionError { get; private set; } = null;
+        public static string VersionWarning { get; private set; } = null;
+        public static bool DeathLinkOn { get { return IsDeathLinkEnabled; } }
+        public static bool EnemyShuffleOn { get; private set; } = false;
+
+        public static void SetConnectionError(string message)
+        {
+            LastConnectionError = message;
+        }
+
+        /// <summary>Copy of everything received from the server, oldest first.</summary>
+        public static List<ItemInfo> GetReceivedItemsSnapshot()
+        {
+            lock (itemLock)
+            {
+                return new List<ItemInfo>(allItemsReceivedFromServer);
+            }
+        }
         #endregion
 
         #region Randomizer Parameter Variables
@@ -92,7 +117,17 @@ namespace ArchiGungeon.ArchipelagoServer
             }
 
             ArchipelagoGUI.ConsoleLog($"Connecting to {ip}:{port} as {name}");
+            LastConnectionError = null;
+            VersionWarning = null;
             LoginResult loginResult;
+
+            int parsedPort;
+            if (!int.TryParse(port, out parsedPort))
+            {
+                LastConnectionError = $"'{port}' isn't a port number. Use the number after the colon in the server address, like 38281.";
+                ArchipelagoGUI.ConsoleLog(LastConnectionError);
+                return;
+            }
 
             // Handle try login
             try
@@ -133,10 +168,11 @@ namespace ArchiGungeon.ArchipelagoServer
             TrapSpawnHandler.SetCanSpawn(true);
             ConsumableSpawnHandler.SetCanSpawn(true);
 
+            ConnectedSlotName = name;
             ArchipelagoGUI.ConsoleLog("Connected to Archipelago server.");
 
-            // close console UI on successful connect
-            ArchipelagoGUI.Instance.OnClose();
+            // Show the tracker; the old console closed itself here
+            ArchipelagoMenu.Instance?.OnConnected();
             CallRetrieveDataCoroutine();
 
             return;
@@ -188,8 +224,42 @@ namespace ArchiGungeon.ArchipelagoServer
             }
 
             ArchipelagoGUI.ConsoleLog(text);
+            LastConnectionError = DescribeLoginFailure(ip, port, name, loginFailure);
 
             return;
+        }
+
+        private static string DescribeLoginFailure(string ip, string port, string name, LoginFailure failure)
+        {
+            foreach (ConnectionRefusedError code in failure.ErrorCodes)
+            {
+                switch (code)
+                {
+                    case ConnectionRefusedError.InvalidSlot:
+                        return $"There's no player named '{name}' in this game. Slot names are case-sensitive; check your player options file.";
+                    case ConnectionRefusedError.InvalidGame:
+                        return $"'{name}' isn't an Enter the Gungeon slot in this game.";
+                    case ConnectionRefusedError.InvalidPassword:
+                        return "Wrong password, or this server needs one. Enter it in the Password box.";
+                    case ConnectionRefusedError.SlotAlreadyTaken:
+                        return $"Someone is already connected as '{name}'.";
+                    case ConnectionRefusedError.IncompatibleVersion:
+                        return "The server's Archipelago version isn't compatible with this mod.";
+                    case ConnectionRefusedError.InvalidItemsHandling:
+                        return "The server rejected this client's settings. Try updating the mod.";
+                }
+            }
+
+            string details = string.Join(" ", failure.Errors ?? new string[0]);
+            string lower = details.ToLowerInvariant();
+            if (lower.Contains("timed out") || lower.Contains("timeout") || lower.Contains("refused") || lower.Contains("unable to connect")
+                || lower.Contains("no such host") || lower.Contains("could not be resolved") || lower.Contains("not connect"))
+            {
+                return $"Couldn't reach a server at {ip}:{port}. Check the address and port, and that the server is running. " +
+                    "Rooms on archipelago.gg change port when they restart.";
+            }
+
+            return $"Couldn't connect to {ip}:{port} as {name}. {details}";
         }
 
 
@@ -201,6 +271,7 @@ namespace ArchiGungeon.ArchipelagoServer
             RoomSeed = Session.RoomState.Seed;
             SetPlayerCompletionGoalsDataFromSlotData();
             ProgressionUnlocks.LoadSlotSettings(PlayerSlotSettings);
+            CheckAPWorldVersion();
 
             foreach (string key in PlayerSlotSettings.Keys)
             {
@@ -257,6 +328,11 @@ namespace ArchiGungeon.ArchipelagoServer
 
             }
 
+            object seedVersion;
+            PlayerSlotSettings.TryGetValue("APWorld", out seedVersion);
+            VersionWarning = $"This seed was made with APWorld {seedVersion ?? "(unknown)"}, but this mod expects {ArchipelaGunPlugin.AP_WORLD_VERSION}. " +
+                "Some checks or items may not work. Regenerate with the matching .apworld.";
+
             ArchipelagoGUI.ConsoleLog("============= INCOMPATIBLE AP WORLD VERSION ==============");
 
             ArchipelagoGUI.ConsoleLog($"ArchipelaGun Mod looking for APWorld {ArchipelaGunPlugin.AP_WORLD_VERSION}");
@@ -285,6 +361,8 @@ namespace ArchiGungeon.ArchipelagoServer
 
             Session.Socket.Disconnect();
             Session = null;
+            ConnectedSlotName = "";
+            EnemyShuffleOn = false;
 
             EnemySwapping.ClearAllShuffleLists();
 
@@ -339,6 +417,7 @@ namespace ArchiGungeon.ArchipelagoServer
             // binds
 
             Session.Items.ItemReceived += DataReceiver.OnItemReceived;
+            Session.MessageLog.OnMessageReceived += message => ArchipelagoMenu.AddLog(message.ToString());
 
             //Session.Socket.PacketReceived += DataReceiver.OnPacketReceived;
             //Session.MessageLog.OnMessageReceived += DataReceiver.OnMessageReceived;
@@ -829,10 +908,12 @@ namespace ArchiGungeon.ArchipelagoServer
             if (Convert.ToInt32(PlayerSlotSettings["RandomEnemies"]) == 1)
             {
                 InitializeEnemySwapper();
+                EnemyShuffleOn = true;
                 ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, "Random enemies");
             }
             else
             {
+                EnemyShuffleOn = false;
                 ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState, "Enemies not randomized");
             }
             return;
@@ -864,11 +945,13 @@ namespace ArchiGungeon.ArchipelagoServer
             {
                 ArchipelagoGUI.ConsoleLog("Enemy shuffle has been DISABLED");
                 EnemySwapping.ClearAllShuffleLists();
+                EnemyShuffleOn = false;
             }
             else if (modeEntry == 1)
             {
                 ArchipelagoGUI.ConsoleLog("Enemy shuffle has been ENABLED");
                 InitializeEnemySwapper();
+                EnemyShuffleOn = true;
             }
             else
             {

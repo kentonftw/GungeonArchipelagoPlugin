@@ -341,6 +341,45 @@ namespace ArchiGungeon.Data
             return outOfGoals;
         }
 
+        public struct GoalProgress
+        {
+            public string Label;
+            public int Count;
+            public int NextGoal;
+            public int GoalsLeft;
+        }
+
+        /// <summary>Each stat that still has checks: its count, the next threshold and how many checks are left.</summary>
+        public static List<GoalProgress> GetGoalProgress()
+        {
+            List<GoalProgress> result = new List<GoalProgress>();
+
+            foreach (KeyValuePair<CountStats, List<int>> entry in LocationCheckGoals)
+            {
+                if (entry.Value.Count == 0 || !GoalsFormattedText.ContainsKey(entry.Key) || !CountSaveDataDict.ContainsKey(entry.Key)
+                    || IsCountStatNull(entry.Key))
+                {
+                    continue;
+                }
+
+                string label = GoalsFormattedText[entry.Key];
+                if (entry.Key.ToString().StartsWith("Floor"))
+                {
+                    label += " clears";
+                }
+
+                result.Add(new GoalProgress
+                {
+                    Label = label,
+                    Count = CountSaveDataDict[entry.Key],
+                    NextGoal = entry.Value[0],
+                    GoalsLeft = entry.Value.Count,
+                });
+            }
+
+            return result;
+        }
+
         public static List<string> GetFormattedListOfRemainingGoals()
         {
             List<string> formatList = new List<string>();

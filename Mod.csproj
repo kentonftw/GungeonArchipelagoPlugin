@@ -72,6 +72,7 @@
     <Compile Include="GungeonEventHandlers\TrapSpawnHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UserInterface\TextBoxHandler.cs" />
+    <Compile Include="UserInterface\ArchipelagoMenu.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\example_item_sprite.png" />
