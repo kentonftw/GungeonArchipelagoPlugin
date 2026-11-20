@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using MonoMod.RuntimeDetour;
@@ -11,7 +12,7 @@ namespace ArchiGungeon.ItemArchipelago
 {
     /// <summary>
     /// Persistent unlocks from the APWorld's progression options: Progressive Chamber Access (elevator locks),
-    /// Bullet That Can Kill The Past parts, and Sell Creep's Favor. Unlock state is derived from every item
+    /// Bullet That Can Kill The Past parts, and Sell Creep's Favor. Also re-times the Old Crest. Unlock state is derived from every item
     /// received from the server, so it survives death and new runs.
     /// </summary>
     public static class ProgressionUnlocks
@@ -37,14 +38,36 @@ namespace ArchiGungeon.ItemArchipelago
 
         #region Setup
 
-        private static Hook elevatorDepartureHook;
+        private static readonly List<Hook> hooks = new List<Hook>();
 
         public static void InitHooks()
         {
-            elevatorDepartureHook = new Hook(
-                typeof(ElevatorDepartureController).GetMethod("DoDeparture", BindingFlags.Instance | BindingFlags.Public),
-                typeof(ProgressionUnlocks).GetMethod("DoDepartureHook", BindingFlags.Static | BindingFlags.Public)
-            );
+            const BindingFlags instance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            // Elevator out of a floor, and the "cryo" elevator (save and quit, resumes on the next floor)
+            AddHook(typeof(ElevatorDepartureController).GetMethod("DoDeparture", instance), "DoDepartureHook");
+            AddHook(typeof(ElevatorDepartureController).GetMethod("DoCryoDeparture", instance), "DoCryoDepartureHook");
+
+            // Breach shortcut elevator: hide shortcuts to chambers that aren't unlocked yet
+            AddHook(typeof(ShortcutElevatorController).GetMethod("DetermineAvailableShortcuts", instance), "DetermineAvailableShortcutsHook");
+            AddHook(typeof(ShortcutElevatorController).GetMethod("GetCachedAvailableShortcut", instance), "GetCachedAvailableShortcutHook");
+
+            // Sell Creep's grate to the R&G Dept.
+            AddHook(typeof(SellCellController).GetMethod("HandleSellPitOpening", instance), "HandleSellPitOpeningHook");
+
+            // Blacksmith / Ark: report the Bullet as built only once all four AP parts are received
+            AddHook(typeof(GameStatsManager).GetMethod("GetFlag", instance, null, new Type[] { typeof(GungeonFlags) }, null), "GetFlagHook");
+        }
+
+        private static void AddHook(MethodInfo target, string hookName)
+        {
+            if (target == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.PluginStartup, $"Could not find game method for {hookName}, skipping hook");
+                return;
+            }
+
+            hooks.Add(new Hook(target, typeof(ProgressionUnlocks).GetMethod(hookName, BindingFlags.Static | BindingFlags.Public)));
         }
 
         public static void LoadSlotSettings(Dictionary<string, object> slotData)
@@ -244,6 +267,133 @@ namespace ArchiGungeon.ItemArchipelago
             }
 
             orig(self);
+        }
+
+        public static void DoCryoDepartureHook(Action<ElevatorDepartureController, bool> orig, ElevatorDepartureController self, bool playerless)
+        {
+            int needed = AccessNeededToLeaveCurrentFloor();
+
+            if (!playerless && ChamberAccessCount < needed)
+            {
+                ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                return;
+            }
+
+            orig(self, playerless);
+        }
+
+        /// <summary>Chamber number a Breach shortcut starts on, or 0 if it isn't a main chamber.</summary>
+        private static readonly Dictionary<string, int> shortcutChamber = new Dictionary<string, int>()
+        {
+            { "tt5", 2 },
+            { "tt_mines", 3 },
+            { "tt_catacombs", 4 },
+            { "tt_forge", 5 },
+        };
+
+        private static readonly FieldInfo availableShortcutsField =
+            typeof(ShortcutElevatorController).GetField("availableShortcuts", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo selectedShortcutField =
+            typeof(ShortcutElevatorController).GetField("m_selectedShortcutIndex", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        public static void DetermineAvailableShortcutsHook(Action<ShortcutElevatorController> orig, ShortcutElevatorController self)
+        {
+            orig(self);
+
+            if (!ChamberLocksEnabled || availableShortcutsField == null)
+            {
+                return;
+            }
+
+            List<ShortcutDefinition> shortcuts = availableShortcutsField.GetValue(self) as List<ShortcutDefinition>;
+            if (shortcuts == null)
+            {
+                return;
+            }
+
+            int access = ChamberAccessCount;
+            shortcuts.RemoveAll(shortcut =>
+            {
+                int chamber;
+                return shortcut.targetLevelName != null
+                    && shortcutChamber.TryGetValue(shortcut.targetLevelName, out chamber)
+                    && chamber - 1 > access;
+            });
+
+            if (selectedShortcutField != null)
+            {
+                int selected = (int)selectedShortcutField.GetValue(self);
+                selectedShortcutField.SetValue(self, ClampIndex(selected, shortcuts.Count));
+            }
+        }
+
+        public static int GetCachedAvailableShortcutHook(Func<ShortcutElevatorController, int> orig, ShortcutElevatorController self)
+        {
+            int cached = orig(self);
+
+            List<ShortcutDefinition> shortcuts = availableShortcutsField == null ? null
+                : availableShortcutsField.GetValue(self) as List<ShortcutDefinition>;
+
+            return shortcuts == null ? cached : ClampIndex(cached, shortcuts.Count);
+        }
+
+        private static int ClampIndex(int index, int count)
+        {
+            if (count <= 0 || index < 0)
+            {
+                return 0;
+            }
+            return Math.Min(index, count - 1);
+        }
+
+        #endregion
+
+        #region Sell Creep and Blacksmith
+
+        public static IEnumerator HandleSellPitOpeningHook(Func<SellCellController, IEnumerator> orig, SellCellController self)
+        {
+            if (!CanOpenRGDept)
+            {
+                // Selling more items re-checks, so the grate opens once the favor (and Forge access) arrives.
+                ShowMessage(SellCreepsFavorEnabled && SessionHandler.CountReceivedItem(SellCreepsFavorID) == 0
+                    ? "The Sell Creep wants a favor first"
+                    : $"R&G Dept. needs Chamber access {MaxChamberAccess}");
+                return EmptyCoroutine();
+            }
+
+            return orig(self);
+        }
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
+
+        private static readonly GungeonFlags[] blacksmithElementFlags =
+        {
+            GungeonFlags.BLACKSMITH_ELEMENT1,
+            GungeonFlags.BLACKSMITH_ELEMENT2,
+            GungeonFlags.BLACKSMITH_ELEMENT3,
+            GungeonFlags.BLACKSMITH_ELEMENT4,
+        };
+
+        public static bool GetFlagHook(Func<GameStatsManager, GungeonFlags, bool> orig, GameStatsManager self, GungeonFlags flag)
+        {
+            if (BulletPartsEnabled)
+            {
+                if (flag == GungeonFlags.BLACKSMITH_BULLET_COMPLETE)
+                {
+                    return HasAllBulletParts;
+                }
+
+                int element = Array.IndexOf(blacksmithElementFlags, flag);
+                if (element >= 0)
+                {
+                    return SessionHandler.CountReceivedItem(BulletPartIDs[element]) > 0;
+                }
+            }
+
+            return orig(self, flag);
         }
 
         #endregion
