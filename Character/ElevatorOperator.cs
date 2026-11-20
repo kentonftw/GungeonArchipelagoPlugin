@@ -76,11 +76,11 @@ namespace ArchiGungeon.Character
             animator.playAutomatically = true;
             animator.DefaultClipId = animator.GetClipIdByName("idle");
 
-            // A small solid footprint (in pixels) so you can't walk through him; the sprite is 32x32
+            // A small solid footprint (in pixels) under his feet so you can't walk through him. Frames are 26x33.
             ShopAPI.GenerateOrAddToRigidBody(obj, CollisionLayer.HighObstacle, PixelCollider.PixelColliderGeneration.Manual,
                 collideWithTileMap: false, CollideWithOthers: true, CanBeCarried: false, CanBePushed: false, RecheckTriggers: false,
                 IsTrigger: false, replaceExistingColliders: true, UsesPixelsAsUnitSize: true,
-                dimensions: new IntVector2(12, 6), offset: new IntVector2(10, 0));
+                dimensions: new IntVector2(12, 6), offset: new IntVector2(7, 0));
 
             obj.AddComponent<ElevatorOperator>();
             prefab = obj;
