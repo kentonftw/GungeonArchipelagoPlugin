@@ -8,6 +8,7 @@ using Alexandria.Misc;
 using ArchiGungeon.UserInterface;
 using Alexandria.ItemAPI;
 using ArchiGungeon.Data;
+using ArchiGungeon.ArchipelagoServer;
 
 namespace ArchiGungeon.GungeonEventHandlers
 {
@@ -73,34 +74,53 @@ namespace ArchiGungeon.GungeonEventHandlers
 
     public class RandomizedByQualityItems
     {
+        // Random-tier items are fixed per seed: the nth "Random A Tier Gun" you've received always rolls the same
+        // gun in this seed, every run. Each roll gets its own generator, seeded from the room seed, the slot,
+        // the item type and which copy of it this is. Items are handed out in the order the server sent them,
+        // so the copy number lines up from run to run.
         private static System.Random random = new();
+        private static readonly Dictionary<int, int> rollsThisRun = new Dictionary<int, int>();
 
-        // The game's pickers return null when nothing of that quality is eligible (e.g. every S-tier passive is
-        // still locked on this save), which crashed the hand-out and lost the item. Retry, then pick from the
-        // whole database ourselves.
+        /// <summary>Call at the start of each run, before received items are handed out again.</summary>
+        public static void ResetRollCounters()
+        {
+            rollsThisRun.Clear();
+        }
+
+        private static void StartRoll(int itemCase)
+        {
+            int copy;
+            rollsThisRun.TryGetValue(itemCase, out copy);
+            rollsThisRun[itemCase] = copy + 1;
+
+            random = new System.Random(StableHash($"{SessionHandler.SeedKey}|{itemCase}|{copy}"));
+        }
+
+        // string.GetHashCode isn't guaranteed stable between runtimes, so use FNV-1a
+        private static int StableHash(string text)
+        {
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (char c in text)
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+                return (int)(hash & 0x7FFFFFFF);
+            }
+        }
+
+        // Picks from the whole item database (sorted by ID) rather than the game's own picker, whose choices
+        // depend on what's unlocked on this save and so would change as you unlock things. This also fixes the
+        // game's picker returning nothing when every item of a quality is still locked.
         private static Gun GetRandomGunByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            for (int attempt = 0; attempt < 3; attempt++)
-            {
-                Gun gun = PickupObjectDatabase.GetRandomGunOfQualities(random, new List<int>(), itemQuals);
-                if (gun != null)
-                {
-                    return gun;
-                }
-            }
             return PickFromDatabase<Gun>(itemQuals);
         }
 
         private static PassiveItem GetRandomPassiveByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            for (int attempt = 0; attempt < 3; attempt++)
-            {
-                PassiveItem passive = PickupObjectDatabase.GetRandomPassiveOfQualities(random, new List<int>(), itemQuals);
-                if (passive != null)
-                {
-                    return passive;
-                }
-            }
             return PickFromDatabase<PassiveItem>(itemQuals);
         }
 
@@ -116,8 +136,14 @@ namespace ArchiGungeon.GungeonEventHandlers
                 }
             }
 
-            ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Random {typeof(T).Name} fallback pool: {pool.Count}");
-            return pool.Count > 0 ? pool[random.Next(pool.Count)] : null;
+            if (pool.Count == 0)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"No {typeof(T).Name} found for {string.Join(",", itemQuals.Select(q => q.ToString()).ToArray())}");
+                return null;
+            }
+
+            pool.Sort((a, b) => a.PickupObjectId.CompareTo(b.PickupObjectId));
+            return pool[random.Next(pool.Count)];
         }
 
 
@@ -268,6 +294,7 @@ namespace ArchiGungeon.GungeonEventHandlers
         public static void GiveRandomizedItemByCase(int itemCase)
         {
             EffectsController.PlaySynergyVFX();
+            StartRoll(itemCase);
 
             switch (itemCase)
             {

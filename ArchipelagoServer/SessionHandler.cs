@@ -68,6 +68,12 @@ namespace ArchiGungeon.ArchipelagoServer
             get { return Session != null && Session.Socket != null && Session.Socket.Connected; }
         }
         public static string ConnectedSlotName { get; private set; } = "";
+
+        /// <summary>Identifies this seed and slot, for rolls that should stay the same every run.</summary>
+        public static string SeedKey
+        {
+            get { return $"{RoomSeed}:{ConnectedSlotName}"; }
+        }
         public static string LastConnectionError { get; private set; } = null;
         public static string VersionWarning { get; private set; } = null;
         public static bool DeathLinkOn { get { return IsDeathLinkEnabled; } }
@@ -550,6 +556,7 @@ namespace ArchiGungeon.ArchipelagoServer
             }
             IsReverseCurseSetForRun = false;
             RunSetupDoneThisRun = false;
+            RandomizedByQualityItems.ResetRollCounters();
             IsProgressItemsGiven = false;
             IsValidToSpawnItems = false;
             HandlingDeathlinkEvent = false;
