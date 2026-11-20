@@ -42,6 +42,27 @@ namespace ArchiGungeon.ArchipelagoServer
         #endregion
 
         #region Server Receive Events
+
+        // PlayerController.Die and Fall, and HealthHaver.currentHealth, are private in the real game. Naming
+        // them directly compiled against the publicized game libraries but made this whole method throw
+        // at runtime, so a received DeathLink never killed anyone. Private methods go through reflection.
+        private static readonly System.Reflection.MethodInfo playerDieMethod = typeof(PlayerController).GetMethod(
+            "Die", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+            null, new System.Type[] { typeof(Vector2) }, null);
+        private static readonly System.Reflection.MethodInfo playerFallMethod = typeof(PlayerController).GetMethod(
+            "Fall", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+            null, System.Type.EmptyTypes, null);
+
+        private static void InvokePrivate(System.Reflection.MethodInfo method, PlayerController player, params object[] args)
+        {
+            if (method == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, "Deathlink: game method not found");
+                return;
+            }
+            method.Invoke(player, args);
+        }
+
         public static void DeathlinkKillPlayer(string causeOfDeath = "Deathlink")
         {
             
@@ -60,9 +81,9 @@ namespace ArchiGungeon.ArchipelagoServer
                     ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, "Soft killing Player Two");
 
                     //playerTwo.healthHaver.ManualDeathHandling = true;
-                    playerTwo.healthHaver.currentHealth = 0f;
+                    playerTwo.healthHaver.ForceSetCurrentHealth(0f);
                     playerTwo.healthHaver.lastIncurredDamageSource = causeOfDeath;
-                    playerTwo.Fall();
+                    InvokePrivate(playerFallMethod, playerTwo);
 
                     return;
                 }
@@ -71,7 +92,7 @@ namespace ArchiGungeon.ArchipelagoServer
 
             ArchDebugPrint.DebugLog(DebugCategory.ServerReceive, "Killing Player One");
             playerOne.healthHaver.lastIncurredDamageSource = causeOfDeath;
-            playerOne.Die(Vector2.zero);
+            InvokePrivate(playerDieMethod, playerOne, Vector2.zero);
 
             return;
         }

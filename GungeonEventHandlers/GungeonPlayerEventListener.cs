@@ -169,6 +169,12 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         
 
+        // m_baseParentShop is private in the real game. The project compiles against a publicized copy, but
+        // naming the field directly made this whole method throw FieldAccessException at runtime, so shop
+        // items were never replaced with AP items. Read it through reflection instead.
+        private static readonly System.Reflection.FieldInfo baseParentShopField = typeof(ShopItemController).GetField(
+            "m_baseParentShop", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
         private static void OnShopItemCreated(ShopItemController obj)
         {
             if(!APPickUpItem.HasAPItemChecksRemaining())
@@ -176,12 +182,13 @@ namespace ArchiGungeon.GungeonEventHandlers
                 return;
             }
 
-            if (obj.m_baseParentShop == null)
+            BaseShopController baseParentShop = baseParentShopField == null ? null : baseParentShopField.GetValue(obj) as BaseShopController;
+            if (baseParentShop == null)
             {
                 return;
             }
 
-            if (obj.CurrencyType == ShopItemController.ShopCurrencyType.META_CURRENCY|| obj.m_baseParentShop.baseShopType == BaseShopController.AdditionalShopType.FOYER_META)
+            if (obj.CurrencyType == ShopItemController.ShopCurrencyType.META_CURRENCY|| baseParentShop.baseShopType == BaseShopController.AdditionalShopType.FOYER_META)
             {
                 ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Shop Item replacement ignoring meta shop items");
                 return;
@@ -199,7 +206,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             // reset count
             CurrentShopItemCount = 0;
 
-            BaseShopController shopContext = obj.m_baseParentShop;
+            BaseShopController shopContext = baseParentShop;
             BaseShopControllers.Add(shopContext);
 
             //ArchipelagoGUI.ConsoleLog(shopContext.GetType());
