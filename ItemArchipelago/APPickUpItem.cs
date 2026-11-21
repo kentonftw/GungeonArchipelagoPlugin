@@ -30,6 +30,18 @@ namespace ArchiGungeon.ItemArchipelago
 
         // What each AP Item picked up this run held, for the death screen recap
         private static readonly List<string> foundThisRun = new List<string>();
+        private static readonly List<string> foundDetailsThisRun = new List<string>();
+
+        /// <summary>This run's AP Items: what each held, and its importance/game line.</summary>
+        public static List<KeyValuePair<string, string>> GetFoundThisRun()
+        {
+            List<KeyValuePair<string, string>> result = new List<KeyValuePair<string, string>>();
+            for (int i = 0; i < foundThisRun.Count; i++)
+            {
+                result.Add(new KeyValuePair<string, string>(foundThisRun[i], i < foundDetailsThisRun.Count ? foundDetailsThisRun[i] : ""));
+            }
+            return result;
+        }
         private static bool showingRunSummary = false;
 
         // Scouted contents of each AP Item location: written on the network thread, read on the game thread
@@ -233,11 +245,14 @@ namespace ArchiGungeon.ItemArchipelago
             if(remainingLocationIDs.Count > 0)
             {
                 string held;
+                string detail;
                 lock (previewLock)
                 {
                     held = previewNames.ContainsKey(remainingLocationIDs[0]) ? previewNames[remainingLocationIDs[0]] : "an item for the multiworld";
+                    detail = previewDescriptions.ContainsKey(remainingLocationIDs[0]) ? previewDescriptions[remainingLocationIDs[0]] : "";
                 }
                 foundThisRun.Add(held);
+                foundDetailsThisRun.Add(detail);
 
                 ArchDebugPrint.DebugLog(DebugCategory.ServerSend, $"Sending location ID {remainingLocationIDs[0]}");
                 SessionHandler.DataSender.SendFoundLocationCheck(remainingLocationIDs[0]);
@@ -311,6 +326,7 @@ namespace ArchiGungeon.ItemArchipelago
         public static void ResetForNewRun()
         {
             foundThisRun.Clear();
+            foundDetailsThisRun.Clear();
             showingRunSummary = false;
             previewDirty = true;
         }

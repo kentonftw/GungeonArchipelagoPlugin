@@ -61,6 +61,13 @@ namespace ArchiGungeon.UserInterface
         private object trackedHintSession = null;
         private string hintInput = "";
 
+        // ---- death screen recap (F8 there shows/hides it; no clicks, since the game's death screen uses
+        // Space/Esc and its own buttons underneath)
+        private bool deathScreenOpen = false;
+        private bool recapVisible = false;
+        private float nextDeathScreenCheck = 0f;
+        private Vector2 recapScroll;
+
         // ---- scroll positions
         private Vector2 trackerScroll, itemsScroll, hintsScroll, consoleScroll;
 
@@ -171,7 +178,34 @@ namespace ArchiGungeon.UserInterface
 
         private void Update()
         {
-            if (menuKey != null && Input.GetKeyDown(menuKey.Value))
+            if (Time.unscaledTime >= nextDeathScreenCheck)
+            {
+                nextDeathScreenCheck = Time.unscaledTime + 0.5f;
+                bool open = UnityEngine.Object.FindObjectOfType<AmmonomiconDeathPageController>() != null;
+                if (open && !deathScreenOpen)
+                {
+                    nextTrackerRefresh = 0f; // fresh data for the recap
+                }
+                if (!open)
+                {
+                    recapVisible = false;
+                }
+                deathScreenOpen = open;
+            }
+
+            if (deathScreenOpen && !IsOpen)
+            {
+                if (menuKey != null && Input.GetKeyDown(menuKey.Value))
+                {
+                    recapVisible = !recapVisible;
+                }
+                if (Time.unscaledTime >= nextTrackerRefresh)
+                {
+                    nextTrackerRefresh = Time.unscaledTime + 1f;
+                    RefreshTracker();
+                }
+            }
+            else if (menuKey != null && Input.GetKeyDown(menuKey.Value))
             {
                 if (IsOpen)
                 {
@@ -227,7 +261,14 @@ namespace ArchiGungeon.UserInterface
 
             if (!IsOpen)
             {
-                DrawStatusIndicator(virtualWidth);
+                if (deathScreenOpen && SessionHandler.IsConnected)
+                {
+                    DrawDeathRecap(virtualWidth, virtualHeight);
+                }
+                else
+                {
+                    DrawStatusIndicator(virtualWidth);
+                }
                 GUI.matrix = previousMatrix;
                 return;
             }
@@ -963,6 +1004,102 @@ namespace ArchiGungeon.UserInterface
 
             AddLog($"<color=#F4D03F>> {text}</color>");
             ArchipelagoGUI.Instance?.RunCommand(text);
+        }
+
+        #endregion
+
+        #region Death screen recap
+
+        private void DrawDeathRecap(float virtualWidth, float virtualHeight)
+        {
+            if (!recapVisible)
+            {
+                statusStyle.normal.textColor = Gold;
+                GUI.Label(new Rect(virtualWidth / 2f - 200f, 4f, 400f, 24f), $"{menuKey.Value}: this run's Archipelago recap", statusStyle);
+                return;
+            }
+
+            float width = Mathf.Min(620f, virtualWidth - 40f);
+            float height = Mathf.Min(560f, virtualHeight - 60f);
+            Rect panel = new Rect((virtualWidth - width) / 2f, (virtualHeight - height) / 2f, width, height);
+            GUI.Box(panel, GUIContent.none, windowStyle);
+
+            GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 12f, panel.width - 32f, panel.height - 24f));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("<b>This run</b>", headerStyle);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{menuKey.Value} to hide · hover for details", mutedStyle);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(6f);
+
+            string hoveredTip = null;
+            recapScroll = GUILayout.BeginScrollView(recapScroll, boxStyle);
+
+            List<KeyValuePair<string, string>> found = APPickUpItem.GetFoundThisRun();
+            GUILayout.Label($"<b>AP Items you picked up ({found.Count})</b>", labelStyle);
+            if (found.Count == 0)
+            {
+                GUILayout.Label("None this run.", mutedStyle);
+            }
+            foreach (KeyValuePair<string, string> entry in found)
+            {
+                GUILayout.Label(entry.Key, labelStyle);
+                if (Event.current.type == EventType.Repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                {
+                    hoveredTip = entry.Key + (entry.Value.Length > 0 ? "\n" + entry.Value : "") + "\n\nSent to its owner when you picked it up.";
+                    GUI.Box(GUILayoutUtility.GetLastRect(), GUIContent.none, rowHighlightStyle);
+                }
+            }
+
+            GUILayout.Space(10f);
+            GUILayout.Label($"<b>Items you were given ({receivedItems.Count})</b>", labelStyle);
+            for (int i = receivedItems.Count - 1; i >= 0; i--)
+            {
+                ItemInfo item = receivedItems[i];
+                GUILayout.Label(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)) + RecapResult(item, i), labelStyle);
+                if (Event.current.type == EventType.Repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                {
+                    hoveredTip = i < receivedTooltips.Count ? receivedTooltips[i] : "";
+                    GUI.Box(GUILayoutUtility.GetLastRect(), GUIContent.none, rowHighlightStyle);
+                }
+            }
+
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+
+            // The tooltip is drawn in screen space here, not inside a window
+            if (!string.IsNullOrEmpty(hoveredTip) && Event.current.type == EventType.Repaint)
+            {
+                const float tipWidth = 380f;
+                float tipHeight = tooltipStyle.CalcHeight(new GUIContent(hoveredTip), tipWidth);
+                Vector2 mouse = Event.current.mousePosition;
+                float x = Mathf.Min(mouse.x + 18f, virtualWidth - tipWidth - 8f);
+                float y = mouse.y + 18f;
+                if (y + tipHeight > virtualHeight - 8f)
+                {
+                    y = Mathf.Max(8f, mouse.y - tipHeight - 8f);
+                }
+                GUI.Box(new Rect(x, y, tipWidth, tipHeight), hoveredTip, tooltipStyle);
+            }
+        }
+
+        // " → Plasma Cell" for random-tier items, from the tooltip's "This run it gave" line
+        private string RecapResult(ItemInfo item, int index)
+        {
+            if (index >= receivedTooltips.Count)
+            {
+                return "";
+            }
+            const string marker = "This run it gave: ";
+            string tip = receivedTooltips[index];
+            int at = tip.IndexOf(marker);
+            if (at < 0)
+            {
+                return "";
+            }
+            int end = tip.IndexOf('\n', at);
+            string name = end < 0 ? tip.Substring(at + marker.Length) : tip.Substring(at + marker.Length, end - at - marker.Length);
+            return "  →  " + name;
         }
 
         #endregion
