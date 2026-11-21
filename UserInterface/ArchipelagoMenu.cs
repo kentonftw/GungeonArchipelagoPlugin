@@ -76,7 +76,7 @@ namespace ArchiGungeon.UserInterface
         // ---- styles
         private bool stylesBuilt = false;
         private GUIStyle windowStyle, tabStyle, tabActiveStyle, labelStyle, mutedStyle, headerStyle,
-            valueStyle, buttonStyle, fieldStyle, boxStyle, barBackStyle, barFillStyle, statusStyle, errorStyle, consoleStyle, tooltipStyle;
+            valueStyle, buttonStyle, fieldStyle, boxStyle, barBackStyle, barFillStyle, statusStyle, errorStyle, consoleStyle, tooltipStyle, rowHighlightStyle;
 
         private static readonly Color Gold = new Color(0.96f, 0.82f, 0.25f);
         private static readonly Color Green = new Color(0.45f, 0.85f, 0.45f);
@@ -722,19 +722,28 @@ namespace ArchiGungeon.UserInterface
             GUILayout.Label($"{receivedItems.Count} items received, newest first. Gold is progression, blue is useful. Hover an item for details.", mutedStyle);
             itemsScroll = GUILayout.BeginScrollView(itemsScroll, boxStyle);
 
+            // Hover is detected by hand: Unity's GUI.tooltip didn't show anything in-game
+            string hoveredTip = null;
             for (int i = receivedItems.Count - 1; i >= 0; i--)
             {
                 ItemInfo item = receivedItems[i];
                 string tip = i < receivedTooltips.Count ? receivedTooltips[i] : "";
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(new GUIContent(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), tip), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
-                GUILayout.Label(new GUIContent($"from {SafePlayerName(item)}", tip), mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
-                GUILayout.Label(new GUIContent(item.LocationName ?? "", tip), mutedStyle);
+                GUILayout.Label(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
+                GUILayout.Label($"from {SafePlayerName(item)}", mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
+                GUILayout.Label(item.LocationName ?? "", mutedStyle);
                 GUILayout.EndHorizontal();
+
+                // The row's rect and the mouse are both in the scroll view's content space here
+                if (Event.current.type == EventType.Repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                {
+                    hoveredTip = tip;
+                    GUI.Box(GUILayoutUtility.GetLastRect(), GUIContent.none, rowHighlightStyle);
+                }
             }
 
             GUILayout.EndScrollView();
-            DrawTooltip();
+            DrawTooltip(hoveredTip);
         }
 
         #endregion
@@ -961,9 +970,8 @@ namespace ArchiGungeon.UserInterface
         #region Helpers
 
         // IMGUI sets GUI.tooltip for the hovered control; draw it as a box beside the mouse, kept inside the window
-        private void DrawTooltip()
+        private void DrawTooltip(string tip)
         {
-            string tip = GUI.tooltip;
             if (string.IsNullOrEmpty(tip) || Event.current.type != EventType.Repaint)
             {
                 return;
@@ -1091,6 +1099,8 @@ namespace ArchiGungeon.UserInterface
             };
             tooltipStyle.normal.background = SolidTexture(new Color(0.03f, 0.03f, 0.05f, 0.97f));
             tooltipStyle.normal.textColor = Color.white;
+
+            rowHighlightStyle = new GUIStyle { normal = { background = SolidTexture(new Color(1f, 1f, 1f, 0.08f)) } };
 
             barBackStyle = new GUIStyle { normal = { background = barBack } };
             barFillStyle = new GUIStyle { normal = { background = barFill } };
