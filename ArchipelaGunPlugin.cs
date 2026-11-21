@@ -26,7 +26,7 @@ namespace ArchiGungeon
         public const string TEXT_COLOR = "#B6FFB8";
 
         public const string MOD_ITEM_PREFIX = "arch";
-        public const string AP_WORLD_VERSION = "0.4.0";
+        public const string AP_WORLD_VERSION = "0.4.1";
 
         #region Plugin Startup
         public static ArchipelagoGUI ArchipelagoModMenu { get; protected set; }
