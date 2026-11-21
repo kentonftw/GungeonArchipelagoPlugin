@@ -167,6 +167,12 @@ namespace ArchiGungeon.ArchipelagoServer
                 matchedItem = true;
             }
 
+            // Archipelago Tokens (Token Hunt goal)
+            if (!matchedItem && ExtraChecks.HandleReceivedItem(itemIdToCheck))
+            {
+                matchedItem = true;
+            }
+
             // Max health, armor, blanks, casings, keys
             if (!matchedItem && PersistentUpgrades.HandleReceivedItem(itemIdToCheck))
             {

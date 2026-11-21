@@ -71,6 +71,7 @@ namespace ArchiGungeon.UserInterface
             { 8754405, "Unlocks the Bullet for Paradox Mode." },
 
             { 8754500, "Removes one stack of the Reverse Curse." },
+            { ExtraChecks.TokenID, "An Archipelago Token. Find enough of them to finish the Token Hunt goal." },
 
             // persistent upgrades (applied at the start of every run)
             { PersistentUpgrades.MaxHealthID, "+1 max heart every run (the Robot gets armor instead)." },

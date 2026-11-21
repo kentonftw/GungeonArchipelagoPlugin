@@ -209,12 +209,12 @@ namespace ArchiGungeon.ArchipelagoServer
 
             if (password == null || password == "")
             {
-                loginResult = Session.TryConnectAndLogin("Enter The Gungeon", name, ItemsHandlingFlags.IncludeOwnItems);
+                loginResult = Session.TryConnectAndLogin("Enter The Gungeon", name, ItemsHandlingFlags.AllItems);
             }
 
             else
             {
-                loginResult = Session.TryConnectAndLogin("Enter The Gungeon", name, ItemsHandlingFlags.IncludeOwnItems, password: password);
+                loginResult = Session.TryConnectAndLogin("Enter The Gungeon", name, ItemsHandlingFlags.AllItems, password: password);
             }
 
             return loginResult;
@@ -286,6 +286,7 @@ namespace ArchiGungeon.ArchipelagoServer
             RoomSeed = Session.RoomState.Seed;
             SetPlayerCompletionGoalsDataFromSlotData();
             ProgressionUnlocks.LoadSlotSettings(PlayerSlotSettings);
+            ExtraChecks.LoadSlotSettings(PlayerSlotSettings);
             CheckAPWorldVersion();
 
             foreach (string key in PlayerSlotSettings.Keys)

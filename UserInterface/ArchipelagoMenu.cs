@@ -595,6 +595,20 @@ namespace ArchiGungeon.UserInterface
                     unlockRows.Add(new TrackerRow { Label = "Bullet parts", Value = $"{parts} / 4", Color = parts >= 4 ? Green : Color.white });
                 }
 
+                if (ExtraChecks.TokensRequired > 0)
+                {
+                    int tokens = ExtraChecks.TokenCount;
+                    unlockRows.Add(new TrackerRow { Label = "Archipelago Tokens", Value = $"{tokens} / {ExtraChecks.TokensRequired}",
+                        Color = tokens >= ExtraChecks.TokensRequired ? Green : Gold });
+                }
+
+                if (ExtraChecks.BossHuntCount > 0)
+                {
+                    int bosses = ExtraChecks.BossesKilled;
+                    unlockRows.Add(new TrackerRow { Label = "Boss Hunt", Value = $"{bosses} / {ExtraChecks.BossHuntCount}",
+                        Color = bosses >= ExtraChecks.BossHuntCount ? Green : Gold });
+                }
+
                 if (ProgressionUnlocks.PersistentUpgradesEnabled)
                 {
                     AddUpgradeRow("Max health", PersistentUpgrades.MaxHealthID, 3, "+{0}");
@@ -608,6 +622,9 @@ namespace ArchiGungeon.UserInterface
                 AddCheckGroup("Achievements", 8755200, 8755899);
                 AddCheckGroup("Enemy kills", 8755900, 8755999);
                 AddCheckGroup("Bosses", 8756000, 8756099);
+                AddCheckGroup("Master Rounds", 8756100, 8756199);
+                AddCheckGroup("Shrines", 8756200, 8756299);
+                AddCheckGroup("NPC rescues", 8756300, 8756399);
 
                 foreach (CountGoalManager.GoalProgress progress in CountGoalManager.GetGoalProgress())
                 {

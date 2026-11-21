@@ -65,6 +65,7 @@
     <Compile Include="ItemArchipelago\ProgressionUnlocks.cs" />
     <Compile Include="ItemArchipelago\BossChecks.cs" />
     <Compile Include="ItemArchipelago\PersistentUpgrades.cs" />
+    <Compile Include="ItemArchipelago\ExtraChecks.cs" />
     <Compile Include="UserInterface\ArchipelagoGUI.cs" />
     <Compile Include="GungeonEventHandlers\GungeonPlayerEventListener.cs" />
     <Compile Include="GungeonEventHandlers\SpawningItemsHandler.cs" />

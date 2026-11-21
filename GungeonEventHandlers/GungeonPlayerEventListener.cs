@@ -27,7 +27,8 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static PlayerController PlayerTwo { get; set; }
         private static bool IsOnOddCountChest { get; set; } = true;
         private static List<BaseShopController> BaseShopControllers { get; } = new List<BaseShopController>();
-        private static int ItemCountToReachToReplaceShopItem { get; } = 3;
+        // Every Nth shop item becomes an AP Item (Shop AP Items option); 0 = never
+        private static int ItemCountToReachToReplaceShopItem { get { return ExtraChecks.ShopAPItemRate; } }
         private static int CurrentShopItemCount { get; set; }
         private static int triggerTwinKills;
         private static int killPillarKills;
@@ -192,7 +193,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnShopItemCreated(ShopItemController obj)
         {
-            if(!APPickUpItem.HasAPItemChecksRemaining())
+            if(ItemCountToReachToReplaceShopItem <= 0 || !APPickUpItem.HasAPItemChecksRemaining())
             {
                 return;
             }

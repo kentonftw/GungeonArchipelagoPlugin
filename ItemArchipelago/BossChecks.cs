@@ -11,7 +11,7 @@ namespace ArchiGungeon.ItemArchipelago
     /// </summary>
     public static class BossChecks
     {
-        private const long StartID = 8756000;
+        public const long StartID = 8756000;
 
         // Index in the APWorld list -> enemy GUID. Trigger Twins (2) and Kill Pillars (12) are several
         // enemies, so they're sent from the listener once all of them are dead.
@@ -69,6 +69,7 @@ namespace ArchiGungeon.ItemArchipelago
             // Sending an already-completed check again is harmless, so no local bookkeeping is needed
             ArchDebugPrint.DebugLog(DebugCategory.ServerSend, $"Boss check {index} ({StartID + index})");
             SessionHandler.DataSender.SendFoundLocationCheck(StartID + index);
+            ExtraChecks.OnBossCheckSent(StartID + index);
         }
     }
 }

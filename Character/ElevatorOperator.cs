@@ -469,6 +469,7 @@ namespace ArchiGungeon.Character
                 AddCount(parts, locations, "AP items", 8755000, 8755199);
                 AddCount(parts, locations, "bosses", 8756000, 8756099);
                 AddCount(parts, locations, "kill goals", 8755900, 8755999);
+                AddCount(parts, locations, "Master Rounds", 8756100, 8756199);
                 return parts.Count == 0 ? "" : "Checks done: " + string.Join(", ", parts.ToArray()) + ".";
             }
             catch (Exception)

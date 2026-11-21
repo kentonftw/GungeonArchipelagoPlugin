@@ -26,7 +26,7 @@ namespace ArchiGungeon
         public const string TEXT_COLOR = "#B6FFB8";
 
         public const string MOD_ITEM_PREFIX = "arch";
-        public const string AP_WORLD_VERSION = "0.4.1";
+        public const string AP_WORLD_VERSION = "0.5.0";
 
         #region Plugin Startup
         public static ArchipelagoGUI ArchipelagoModMenu { get; protected set; }
@@ -67,6 +67,7 @@ namespace ArchiGungeon
         {
             //CustomBlankModItem.InitHooks();
             ProgressionUnlocks.InitHooks();
+            ExtraChecks.InitHooks();
         }
 
         private void RegisterItems()
@@ -143,6 +144,7 @@ namespace ArchiGungeon
             ArchipelagoModMenu.Update();
             SessionHandler.TickCheckItemQueue();
             ItemArchipelago.APPickUpItem.TickPreview();
+            ItemArchipelago.ExtraChecks.Tick();
 
             return;
         }
