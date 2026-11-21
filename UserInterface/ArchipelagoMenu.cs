@@ -1028,7 +1028,7 @@ namespace ArchiGungeon.UserInterface
             GUILayout.BeginHorizontal();
             GUILayout.Label("<b>This run</b>", headerStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label($"{menuKey.Value} to hide · hover for details", mutedStyle);
+            GUILayout.Label($"{menuKey.Value} hides · hover a line", mutedStyle, GUILayout.ExpandWidth(false));
             GUILayout.EndHorizontal();
             GUILayout.Space(6f);
 
