@@ -60,16 +60,21 @@
     <Compile Include="GungeonEventHandlers\EffectsController.cs" />
     <Compile Include="ItemArchipelago\ReverseCurseItems.cs" />
     <Compile Include="ItemArchipelago\APPickUpItem.cs" />
-    <Compile Include="ItemArchipelago\Archipelagun.cs" />
     <Compile Include="ItemArchipelago\AchievementLocationCheckHandler.cs" />
     <Compile Include="ItemArchipelago\ShopAPItemHandler.cs" />
     <Compile Include="ItemArchipelago\ProgressionUnlocks.cs" />
+    <Compile Include="ItemArchipelago\BossChecks.cs" />
+    <Compile Include="ItemArchipelago\PersistentUpgrades.cs" />
+    <Compile Include="ItemArchipelago\ExtraChecks.cs" />
     <Compile Include="UserInterface\ArchipelagoGUI.cs" />
     <Compile Include="GungeonEventHandlers\GungeonPlayerEventListener.cs" />
     <Compile Include="GungeonEventHandlers\SpawningItemsHandler.cs" />
     <Compile Include="GungeonEventHandlers\TrapSpawnHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UserInterface\TextBoxHandler.cs" />
+    <Compile Include="UserInterface\ArchipelagoMenu.cs" />
+    <Compile Include="UserInterface\ItemTooltips.cs" />
+    <Compile Include="Character\ElevatorOperator.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\example_item_sprite.png" />
@@ -295,6 +300,14 @@
     <EmbeddedResource Include="Resources\reverseCurse.png" />
     <EmbeddedResource Include="Resources\reverseCurseReverse.png" />
     <EmbeddedResource Include="Resources\archipelago.png" />
+    <EmbeddedResource Include="Resources\operator_idle_001.png" />
+    <EmbeddedResource Include="Resources\operator_idle_002.png" />
+    <EmbeddedResource Include="Resources\operator_idle_003.png" />
+    <EmbeddedResource Include="Resources\operator_idle_004.png" />
+    <EmbeddedResource Include="Resources\operator_talk_001.png" />
+    <EmbeddedResource Include="Resources\operator_talk_002.png" />
+    <EmbeddedResource Include="Resources\operator_talk_003.png" />
+    <EmbeddedResource Include="Resources\operator_talk_004.png" />
     <EmbeddedResource Include="Resources\JackFrost.png" />
     <EmbeddedResource Include="Resources\NakedFrost.png" />
     <EmbeddedResource Include="Resources\NakedFrostSmall.png" />

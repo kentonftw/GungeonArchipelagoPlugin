@@ -135,6 +135,14 @@ namespace ArchiGungeon.UserInterface
             }
         }
 
+        private static void PrintHelpTextToMenu()
+        {
+            foreach (SLabel helpText in ModMenuText.HelpCommandText)
+            {
+                ArchipelagoMenu.AddLog(helpText.Text.TrimEnd('\n'));
+            }
+        }
+
         private void PrintDebugTextToConsole()
         {
 
@@ -181,6 +189,7 @@ namespace ArchiGungeon.UserInterface
         public static SLabel ConsoleLog(object text, bool debuglog = false)
         {
             DebugFileWriter.AppendToLocalDebugLog(text.ToString());
+            ArchipelagoMenu.AddLog(text.ToString());
 
             if (Instance == null)
             {
@@ -252,12 +261,6 @@ namespace ArchiGungeon.UserInterface
 
         public override void Update()
         {
-            if (IsOpen && IsHoldingInput)
-            {
-                // keep focus on UI while open
-                base.GUI[1].Focus();
-            }
-
             if (IsOpen)
             {
                 ApplyInputLockToCurrentPlayers();
@@ -271,12 +274,13 @@ namespace ArchiGungeon.UserInterface
             return;
         }
 
+        // The SGUI console is no longer drawn; the ArchipelaGun window (ArchipelagoMenu) replaces it.
+        // These stay the single entry points so the menu key, the window and connect all agree.
         public override void OnOpen()
         {
-            base.OnOpen();
-            base.GUI[1].Focus();
             IsOpen = true;
             SetPlayerInputLock(true);
+            ArchipelagoMenu.Instance?.Open();
 
             return;
         }
@@ -344,8 +348,8 @@ namespace ArchiGungeon.UserInterface
                 return;
             }
 
-            base.OnClose();
-            OnMenuClose.Invoke();
+            ArchipelagoMenu.Instance?.Close();
+            OnMenuClose?.Invoke();
             IsOpen = false;
             SetPlayerInputLock(false);
 
@@ -360,6 +364,46 @@ namespace ArchiGungeon.UserInterface
             string joinCommands = String.Join(" ", commands);
 
             ParseCommandForArchipelago(joinCommands);
+        }
+
+        private static readonly HashSet<string> knownCommands = new HashSet<string>
+        {
+            ArchipelConsoleCommandParser.connectCmd, ArchipelConsoleCommandParser.retrieveCmd, ArchipelConsoleCommandParser.enemyShuffleCmd,
+            ArchipelConsoleCommandParser.setConnectionParameterCmd, ArchipelConsoleCommandParser.fullConnectCmd,
+            ArchipelConsoleCommandParser.disconnectCmd, ArchipelConsoleCommandParser.reconnectCmd, ArchipelConsoleCommandParser.deathlinkCmd,
+            ArchipelConsoleCommandParser.debugCmd, ArchipelConsoleCommandParser.unitTestCmd, "help",
+        };
+
+        /// <summary>From the menu's Console tab: mod commands run here, anything else goes to the server chat.</summary>
+        public void RunCommand(string text)
+        {
+            string first = SplitArgsBySpace(text).FirstOrDefault() ?? "";
+
+            if (text.StartsWith("!") || !knownCommands.Contains(first.ToLowerInvariant()))
+            {
+                if (!SessionHandler.IsConnected)
+                {
+                    ArchipelagoMenu.AddLog("Not connected, so that can't go to the server. Type help for the mod's commands.");
+                    return;
+                }
+                SessionHandler.DataSender.SendChatMessage(text);
+                return;
+            }
+
+            if (first.ToLowerInvariant() == "help")
+            {
+                PrintHelpTextToMenu();
+                return;
+            }
+
+            try
+            {
+                ParseCommandForArchipelago(first.ToLowerInvariant() + text.Substring(first.Length));
+            }
+            catch (Exception e)
+            {
+                ArchipelagoMenu.AddLog($"That command is missing something: {e.Message}. Type help for the command list.");
+            }
         }
 
         protected void ParseCommandForArchipelago(string command)

@@ -8,6 +8,7 @@ using Alexandria.Misc;
 using ArchiGungeon.UserInterface;
 using Alexandria.ItemAPI;
 using ArchiGungeon.Data;
+using ArchiGungeon.ArchipelagoServer;
 
 namespace ArchiGungeon.GungeonEventHandlers
 {
@@ -73,20 +74,102 @@ namespace ArchiGungeon.GungeonEventHandlers
 
     public class RandomizedByQualityItems
     {
+        // Random-tier items are fixed per seed: the nth "Random A Tier Gun" you've received always rolls the same
+        // gun in this seed, every run. Each roll gets its own generator, seeded from the room seed, the slot,
+        // the item type and which copy of it this is. Items are handed out in the order the server sent them,
+        // so the copy number lines up from run to run.
         private static System.Random random = new();
+        private static readonly Dictionary<int, int> rollsThisRun = new Dictionary<int, int>();
 
+        // What each roll gave this run, for the menu's item tooltips. Key: "case|copy".
+        public struct RollResult { public string Name; public string Description; }
+        private static readonly Dictionary<string, RollResult> resultsThisRun = new Dictionary<string, RollResult>();
+        private static string currentRollKey = null;
+
+        /// <summary>Call at the start of each run, before received items are handed out again.</summary>
+        public static void ResetRollCounters()
+        {
+            rollsThisRun.Clear();
+            resultsThisRun.Clear();
+        }
+
+        public static bool TryGetRoll(int itemCase, int copy, out RollResult result)
+        {
+            return resultsThisRun.TryGetValue($"{itemCase}|{copy}", out result);
+        }
+
+        private static void RecordRoll(PickupObject item)
+        {
+            if (currentRollKey == null || item == null)
+            {
+                return;
+            }
+            resultsThisRun[currentRollKey] = new RollResult
+            {
+                Name = ItemTooltips.NameOf(item),
+                Description = ItemTooltips.DescribeGameItem(item),
+            };
+            currentRollKey = null;
+        }
+
+        private static void StartRoll(int itemCase)
+        {
+            int copy;
+            rollsThisRun.TryGetValue(itemCase, out copy);
+            rollsThisRun[itemCase] = copy + 1;
+            currentRollKey = $"{itemCase}|{copy}";
+
+            random = new System.Random(StableHash($"{SessionHandler.SeedKey}|{itemCase}|{copy}"));
+        }
+
+        // string.GetHashCode isn't guaranteed stable between runtimes, so use FNV-1a
+        private static int StableHash(string text)
+        {
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (char c in text)
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+                return (int)(hash & 0x7FFFFFFF);
+            }
+        }
+
+        // Picks from the whole item database (sorted by ID) rather than the game's own picker, whose choices
+        // depend on what's unlocked on this save and so would change as you unlock things. This also fixes the
+        // game's picker returning nothing when every item of a quality is still locked.
         private static Gun GetRandomGunByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            Gun gunToReturn = PickupObjectDatabase.GetRandomGunOfQualities(random, new List<int>(), itemQuals);
-
-            return gunToReturn;
+            return PickFromDatabase<Gun>(itemQuals);
         }
 
         private static PassiveItem GetRandomPassiveByQualities(PickupObject.ItemQuality[] itemQuals)
         {
-            // don't understand actives yet
-            PassiveItem passiveItem = PickupObjectDatabase.GetRandomPassiveOfQualities(random, new List<int>(), itemQuals);
-            return passiveItem;
+            return PickFromDatabase<PassiveItem>(itemQuals);
+        }
+
+        private static T PickFromDatabase<T>(PickupObject.ItemQuality[] itemQuals) where T : PickupObject
+        {
+            List<T> pool = new List<T>();
+            foreach (PickupObject pickup in PickupObjectDatabase.Instance.Objects)
+            {
+                T item = pickup as T;
+                if (item != null && itemQuals.Contains(item.quality) && item.encounterTrackable != null)
+                {
+                    pool.Add(item);
+                }
+            }
+
+            if (pool.Count == 0)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"No {typeof(T).Name} found for {string.Join(",", itemQuals.Select(q => q.ToString()).ToArray())}");
+                return null;
+            }
+
+            pool.Sort((a, b) => a.PickupObjectId.CompareTo(b.PickupObjectId));
+            return pool[random.Next(pool.Count)];
         }
 
 
@@ -94,8 +177,14 @@ namespace ArchiGungeon.GungeonEventHandlers
         {
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
             Gun gunToGive = GetRandomGunByQualities(itemquals);
+            if (playerToSpawnOn == null || gunToGive == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Couldn't give random gun (no player or no gun found)");
+                return;
+            }
 
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Giving random gun: {gunToGive.name}");
+            RecordRoll(gunToGive);
             playerToSpawnOn.inventory.AddGunToInventory(gunToGive);
 
             return;
@@ -106,10 +195,16 @@ namespace ArchiGungeon.GungeonEventHandlers
         {
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
             PassiveItem passiveToSpawn = GetRandomPassiveByQualities(itemquals);
+            if (playerToSpawnOn == null || passiveToSpawn == null)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Couldn't give random passive (no player or no item found)");
+                return;
+            }
 
             //ArchipelagoGUI.ConsoleLog(passiveToSpawn.Cool);
             //ItemBuilder.SetCooldownType
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, $"Giving random passive: {passiveToSpawn.name}");
+            RecordRoll(passiveToSpawn);
             playerToSpawnOn.AcquirePassiveItem(passiveToSpawn);
 
             //SpawnObjectPlayerItem.ItemQuality.
@@ -220,6 +315,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             PlayerController playerToSpawnOn = GungeonPlayerEventListener.GetFirstAlivePlayer();
 
+            RecordRoll(PickupObjectDatabase.GetById(itemID));
             GameObject itemToGive = PickupObjectDatabase.GetById(itemID).gameObject;
             LootEngine.SpawnItem(itemToGive, playerToSpawnOn.CenterPosition, Vector2.zero, 0);
         }
@@ -227,6 +323,7 @@ namespace ArchiGungeon.GungeonEventHandlers
         public static void GiveRandomizedItemByCase(int itemCase)
         {
             EffectsController.PlaySynergyVFX();
+            StartRoll(itemCase);
 
             switch (itemCase)
             {

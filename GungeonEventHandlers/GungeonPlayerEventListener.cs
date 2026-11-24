@@ -27,9 +27,9 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static PlayerController PlayerTwo { get; set; }
         private static bool IsOnOddCountChest { get; set; } = true;
         private static List<BaseShopController> BaseShopControllers { get; } = new List<BaseShopController>();
-        private static int ItemCountToReachToReplaceShopItem { get; } = 3;
+        // Every Nth shop item becomes an AP Item (Shop AP Items option); 0 = never
+        private static int ItemCountToReachToReplaceShopItem { get { return ExtraChecks.ShopAPItemRate; } }
         private static int CurrentShopItemCount { get; set; }
-        private static bool PickedUpArchipelagun { get; set; }
         private static int triggerTwinKills;
         private static int killPillarKills;
         private static int roomsClearedThisRun;
@@ -37,13 +37,29 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         public static PlayerController GetFirstAlivePlayer()
         {
-            if (PlayerOne.healthHaver.IsAlive)
+            // Null-safe: there is no player on the title screen, and PlayerTwo only exists in co-op
+            if (PlayerOne != null && PlayerOne.healthHaver != null && PlayerOne.healthHaver.IsAlive)
             {
                 return PlayerOne;
             }
-            else if (PlayerTwo.healthHaver.IsAlive)
+            if (PlayerTwo != null && PlayerTwo.healthHaver != null && PlayerTwo.healthHaver.IsAlive)
             {
                 return PlayerTwo;
+            }
+
+            // Fall back to the game's own player references (e.g. before our spawn listener saw the player)
+            if (GameManager.HasInstance)
+            {
+                PlayerController primary = GameManager.Instance.PrimaryPlayer;
+                if (primary != null && primary.healthHaver != null && primary.healthHaver.IsAlive)
+                {
+                    return primary;
+                }
+                PlayerController secondary = GameManager.Instance.SecondaryPlayer;
+                if (secondary != null && secondary.healthHaver != null && secondary.healthHaver.IsAlive)
+                {
+                    return secondary;
+                }
             }
 
             return null;
@@ -103,9 +119,10 @@ namespace ArchiGungeon.GungeonEventHandlers
             { "6c43fddfd401456c916089fdd1c99b1c", CountStats.Floor4Clears },
 
   
-            //floor 5
-            { "b98b10fca77d469e80fb45f3c5badec5", CountStats.Floor5Clears },
-            { "880bbe4ce1014740ba6b4e2ea521e49d", CountStats.Floor5Clears },
+            //floor 5 - the High Dragun and Advanced Dragun. These were the Pilot's and Robot's past bosses
+            // (b98b10..., 880bbe..., also in PastKillsGuids), so the Dragun never counted as a Forge clear.
+            { "465da2bb086a4a88a803f79fe3a27677", CountStats.Floor5Clears },
+            { "05b8afe0b6cc4fffa9dc6036fa24c8ec", CountStats.Floor5Clears },
 
             //hell
             { "7c5d5f09911e49b78ae644d2b50ff3bf", CountStats.FloorHellClears},
@@ -160,7 +177,6 @@ namespace ArchiGungeon.GungeonEventHandlers
             ETGMod.Chest.OnPreOpen += OnChestPreOpen;
             ETGMod.Chest.OnPostOpen += OnChestOpen;
 
-            Archipelagun.OnPickup += OnArchipelagunPickup;
 
             
 
@@ -177,7 +193,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnShopItemCreated(ShopItemController obj)
         {
-            if(!APPickUpItem.HasAPItemChecksRemaining())
+            if(ItemCountToReachToReplaceShopItem <= 0 || !APPickUpItem.HasAPItemChecksRemaining())
             {
                 return;
             }
@@ -245,12 +261,6 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             else
             {
-                if(CharSwap.IsParadoxModeOn == true && controller.characterIdentity == PlayableCharacters.Eevee && PickedUpArchipelagun && IsStartOfRun)
-                {
-                    CharSwap.HandleLostItemsOnCharacterSwap(controller);
-                    IsStartOfRun = false;
-                }
-
                 ArchDebugPrint.DebugLog(DebugCategory.PluginStartup, "Player One Controller Listener Started");
                 PlayerOne = controller;
                 PlayerOne.OnRealPlayerDeath += OnPlayerOneDeath;
@@ -259,24 +269,31 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             StartPlayerControllerEventListens(controller);
 
+            // A replaced player object (Paradox Mode swap) needs its health/armor/blank upgrades again
+            PersistentUpgrades.ApplyPending();
+
             return;
         }
 
-        private static void OnArchipelagunPickup()
+        /// <summary>
+        /// Runs the per-run setup (save load, received items, Paradox Mode) once per run while connected.
+        /// Picking up the Archipelagun used to trigger this; now the first floor load does, and chests,
+        /// bosses, room clears and purchases are fallbacks in case that was missed.
+        /// </summary>
+        private static void EnsureRunSetup()
         {
-            ArchDebugPrint.DebugLog(DebugCategory.UserInterface, "Archipelagun picked up, valid for events");
-            PickedUpArchipelagun = true;
-            return;
-        }
+            if (SessionHandler.RunSetupDoneThisRun || TimedServerCalls.IsRetrieveDataCoroutineRunning || !SessionHandler.IsConnected)
+            {
+                return;
+            }
 
-        private static void CheckToForceArchipelagunOwnership()
-        {
-            if (PickedUpArchipelagun) { return; }
+            if (!GameManager.HasInstance || GameManager.Instance.IsFoyer || GameManager.Instance.PrimaryPlayer == null)
+            {
+                return;
+            }
 
-            PickupObject archipelaGun = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID);
-            GetFirstAlivePlayer().inventory.AddGunToInventory((Gun)archipelaGun, makeActive: true);
-
-            PickedUpArchipelagun = true;
+            ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, "Starting run setup");
+            SessionHandler.CallRetrieveDataCoroutine();
         }
 
         private static void OnArchipelagoMenuOpen()
@@ -307,7 +324,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 return shouldOpen;
             }
 
-            CheckToForceArchipelagunOwnership();
+            EnsureRunSetup();
 
             ArchDebugPrint.DebugLog(DebugCategory.ItemHandling, "Chest Pre-Open Call");
 
@@ -367,7 +384,6 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnRunStarted(PlayerController controller1, PlayerController controller2, GameManager.GameMode mode)
         {
-            PickedUpArchipelagun = false;
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Run started!");
 
             EnemySwapping.ResetEnemyDamageMult();
@@ -375,6 +391,8 @@ namespace ArchiGungeon.GungeonEventHandlers
             killPillarKills = 0;
             triggerTwinKills = 0;
             IsStartOfRun = true;
+            // A new run's first floor can match where the last run ended; clear it so the floor load still counts
+            lastFloorLoaded = "";
 
             CharSwap.EndParadoxModeForReset();
             SessionHandler.ResetVariablesToStartOfRun();
@@ -383,20 +401,20 @@ namespace ArchiGungeon.GungeonEventHandlers
             //PickupObject archipelaGun = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID);
             //controller1.inventory.AddGunToInventory((Gun)archipelaGun, makeActive: true);
 
-            GameObject archipelItem = PickupObjectDatabase.GetById(Archipelagun.SpawnItemID).gameObject;
-            LootEngine.SpawnItem(archipelItem, controller1.CenterPosition, Vector2.zero, 0);
-
+            // No more Archipelagun: the run setup it triggered on pickup now runs when the first floor loads
             return;
         }
 
 
         private static void OnBossKilled(HealthHaver haver, bool arg2)
         {
-            CheckToForceArchipelagunOwnership();
+            EnsureRunSetup();
 
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Boss killed: {haver.name}");
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Boss GUID: {haver.aiActor.EnemyGuid}");
             string enemyGuid = haver.aiActor.EnemyGuid;
+
+            BossChecks.OnBossKilled(enemyGuid);
 
             if(PastKillsGuids.Contains(enemyGuid))
             {
@@ -415,6 +433,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 if(triggerTwinKills == 2)
                 {
                     SaveDataManagement.AddToCountSaveDataEntry(CountStats.Floor1Clears, 1);
+                    BossChecks.OnTriggerTwinsDefeated();
                 }
             }
 
@@ -425,6 +444,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 if (killPillarKills == 4)
                 {
                     SaveDataManagement.AddToCountSaveDataEntry(CountStats.Floor4Clears, 1);
+                    BossChecks.OnKillPillarsDefeated();
                 }
             }
 
@@ -521,6 +541,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
             SaveDataManagement.SaveCurrentRandomizerProgress();
             ProgressionUnlocks.OnFloorLoaded(levelDef.dungeonSceneName);
+            EnsureRunSetup();
 
             if (characterPastFloors.Contains(levelDef.dungeonSceneName))
             {
@@ -562,7 +583,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 }
             }
             controller.characterIdentity = PlayableCharacters.Pilot;
-            PickedUpArchipelagun = false;
+            APPickUpItem.ShowRunSummary();
             SaveDataManagement.SaveCurrentRandomizerProgress();
 
             string deathCause = $"Died to {controller.healthHaver.lastIncurredDamageSource} in the Gungeon";
@@ -584,7 +605,7 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnRoomClear(PlayerController playerController)
         {
-            CheckToForceArchipelagunOwnership();
+            EnsureRunSetup();
 
             roomsClearedThisRun += 1;
 
@@ -606,7 +627,7 @@ namespace ArchiGungeon.GungeonEventHandlers
                 return;
             }
 
-            CheckToForceArchipelagunOwnership();
+            EnsureRunSetup();
 
             int spentMoney = shopItem.CurrentPrice;
             ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, "Adding cash spent: " + spentMoney);
@@ -618,8 +639,8 @@ namespace ArchiGungeon.GungeonEventHandlers
 
         private static void OnKilledEnemy(PlayerController playerController, HealthHaver enemy)
         {
-            string enemyName = enemy.name;
-            // TODO: add enemy headhunter check
+            // Enemy Kills checks (cumulative across runs, saved locally)
+            SaveDataManagement.AddToCountSaveDataEntry(CountStats.EnemyKills, 1);
             return;
         }
 

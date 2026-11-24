@@ -32,6 +32,9 @@ namespace ArchiGungeon.ItemArchipelago
         public static bool SellCreepsFavorEnabled { get; private set; }
         public static bool AllowGlitchChestSkips { get; private set; }
         public static bool AllowTeleporterSkips { get; private set; }
+        public static bool BossChecksEnabled { get; private set; }
+        public static bool EnemyKillChecksEnabled { get; private set; }
+        public static bool PersistentUpgradesEnabled { get; private set; }
 
         private static bool bulletGivenThisRun = false;
 
@@ -89,6 +92,9 @@ namespace ArchiGungeon.ItemArchipelago
             SellCreepsFavorEnabled = ReadFlag(slotData, "SellCreepsFavor");
             AllowGlitchChestSkips = ReadFlag(slotData, "AllowGlitchChestSkips");
             AllowTeleporterSkips = ReadFlag(slotData, "AllowTeleporterSkips");
+            BossChecksEnabled = ReadFlag(slotData, "BossChecks");
+            EnemyKillChecksEnabled = ReadFlag(slotData, "EnemyKillChecks");
+            PersistentUpgradesEnabled = ReadFlag(slotData, "PersistentUpgrades");
 
             ArchDebugPrint.DebugLog(DebugCategory.InitializingGameState,
                 $"Progression options - chamber locks: {ChamberLocksEnabled}, bullet parts: {BulletPartsEnabled}, sell creep's favor: {SellCreepsFavorEnabled}");
@@ -103,6 +109,7 @@ namespace ArchiGungeon.ItemArchipelago
         {
             bulletGivenThisRun = false;
             oldCrestGivenThisRun = false;
+            PersistentUpgrades.ResetForNewRun();
         }
 
         #endregion
@@ -288,7 +295,11 @@ namespace ArchiGungeon.ItemArchipelago
             if (ChamberAccessCount < needed)
             {
                 ArchDebugPrint.DebugLog(DebugCategory.PlayerEventListener, $"Elevator locked: need {needed} chamber access, have {ChamberAccessCount}");
-                ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                // The Elevator Operator says it if he's on this floor; otherwise fall back to the note
+                if (!ArchiGungeon.Character.ElevatorOperator.TryAnnounceLock(needed, ChamberAccessCount))
+                {
+                    ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                }
                 return;
             }
 
@@ -301,7 +312,11 @@ namespace ArchiGungeon.ItemArchipelago
 
             if (!playerless && ChamberAccessCount < needed)
             {
-                ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                // The Elevator Operator says it if he's on this floor; otherwise fall back to the note
+                if (!ArchiGungeon.Character.ElevatorOperator.TryAnnounceLock(needed, ChamberAccessCount))
+                {
+                    ShowMessage($"Elevator locked - Chamber access {ChamberAccessCount}/{needed}");
+                }
                 return;
             }
 
@@ -484,14 +499,28 @@ namespace ArchiGungeon.ItemArchipelago
 
         #endregion
 
+        private const float MessageDuration = 3f;
+        private static string lastMessage = null;
+        private static float lastMessageTime = -100f;
+
+        // The departure hooks fire every frame while you stand in a locked elevator. Re-showing the box each
+        // time restarted its typing animation, so it stayed blank; show it once per lock and skip the typing.
         private static void ShowMessage(string text)
         {
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (text == lastMessage && now - lastMessageTime < MessageDuration)
+            {
+                return;
+            }
+            lastMessage = text;
+            lastMessageTime = now;
+
             ArchipelagoGUI.ConsoleLog(text);
 
             PlayerController player = GungeonPlayerEventListener.GetFirstAlivePlayer();
             if (player != null)
             {
-                TextBoxHandler.ShowItemEventTextBox(player, text, 3f);
+                TextBoxHandler.ShowItemEventTextBox(player, text, MessageDuration, instant: true);
             }
         }
     }

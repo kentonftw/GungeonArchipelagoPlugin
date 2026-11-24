@@ -26,7 +26,7 @@ namespace ArchiGungeon
         public const string TEXT_COLOR = "#B6FFB8";
 
         public const string MOD_ITEM_PREFIX = "arch";
-        public const string AP_WORLD_VERSION = "0.3.0";
+        public const string AP_WORLD_VERSION = "0.5.0";
 
         #region Plugin Startup
         public static ArchipelagoGUI ArchipelagoModMenu { get; protected set; }
@@ -52,6 +52,7 @@ namespace ArchiGungeon
             RegisterItems();
             InitEnemyHooks();
             InitModMenu();
+            ElevatorOperator.Init();
             
 
             Log($"{NAME} v{VERSION} started successfully.", TEXT_COLOR);
@@ -66,11 +67,11 @@ namespace ArchiGungeon
         {
             //CustomBlankModItem.InitHooks();
             ProgressionUnlocks.InitHooks();
+            ExtraChecks.InitHooks();
         }
 
         private void RegisterItems()
         {
-            Archipelagun.Register();
             APPickUpItem.RegisterItemBase();
             ReverseCurse.RegisterItem();
             ReverseCurseReversal.RegisterItem();
@@ -92,6 +93,7 @@ namespace ArchiGungeon
         {
             ArchipelagoModMenu = new ArchipelagoGUI();
             ArchipelagoModMenu.Start();
+            ArchipelagoMenu.Initialize(gameObject, Config);
         }
 
         // Setup functions after instancing all needed functions to prevent missing reference runtime errors
@@ -141,6 +143,8 @@ namespace ArchiGungeon
 
             ArchipelagoModMenu.Update();
             SessionHandler.TickCheckItemQueue();
+            ItemArchipelago.APPickUpItem.TickPreview();
+            ItemArchipelago.ExtraChecks.Tick();
 
             return;
         }

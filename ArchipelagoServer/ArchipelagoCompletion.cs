@@ -102,6 +102,9 @@ namespace ArchiGungeon.ArchipelagoServer
             }
             
 
+            // Token Hunt and Boss Hunt
+            unmetCountStats.AddRange(ArchiGungeon.ItemArchipelago.ExtraChecks.GetUnmetHuntGoals());
+
             return unmetCountStats;
         }
 
