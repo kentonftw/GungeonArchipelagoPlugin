@@ -143,7 +143,7 @@ namespace ArchiGungeon.UserInterface
                 string entry = Localize(journal.AmmonomiconFullEntry);
                 if (entry.Length > MaxEntryChars)
                 {
-                    entry = entry.Substring(0, MaxEntryChars).TrimEnd() + "…";
+                    entry = entry.Substring(0, MaxEntryChars).TrimEnd() + "...";
                 }
 
                 if (quote.Length == 0)

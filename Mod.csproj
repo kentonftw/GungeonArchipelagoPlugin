@@ -74,6 +74,8 @@
     <Compile Include="UserInterface\TextBoxHandler.cs" />
     <Compile Include="UserInterface\ArchipelagoMenu.cs" />
     <Compile Include="UserInterface\ItemTooltips.cs" />
+    <Compile Include="UserInterface\PixelText.cs" />
+    <Compile Include="UserInterface\GungeonSkin.cs" />
     <Compile Include="Character\ElevatorOperator.cs" />
   </ItemGroup>
   <ItemGroup>

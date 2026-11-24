@@ -29,6 +29,8 @@ namespace ArchiGungeon.UserInterface
         private static ConfigEntry<bool> showStatusIndicator;
         private static ConfigEntry<float> uiScale;
         private static ConfigEntry<bool> pauseWhileOpen;
+        private static ConfigEntry<bool> usePixelFont;
+        private static ConfigEntry<string> pixelFontName;
 
         // ---- window state
         public bool IsOpen { get; private set; }
@@ -85,11 +87,13 @@ namespace ArchiGungeon.UserInterface
         private GUIStyle windowStyle, tabStyle, tabActiveStyle, labelStyle, mutedStyle, headerStyle,
             valueStyle, buttonStyle, fieldStyle, boxStyle, barBackStyle, barFillStyle, statusStyle, errorStyle, consoleStyle, tooltipStyle, rowHighlightStyle;
 
-        private static readonly Color Gold = new Color(0.96f, 0.82f, 0.25f);
-        private static readonly Color Green = new Color(0.45f, 0.85f, 0.45f);
-        private static readonly Color Red = new Color(0.95f, 0.4f, 0.35f);
-        private static readonly Color Blue = new Color(0.45f, 0.65f, 1f);
-        private static readonly Color Muted = new Color(0.65f, 0.65f, 0.68f);
+        // Ink colours for parchment (see GungeonSkin)
+        private static readonly Color Gold = GungeonSkin.InkGold;
+        private static readonly Color Green = GungeonSkin.InkGreen;
+        private static readonly Color Red = GungeonSkin.InkRed;
+        private static readonly Color Blue = GungeonSkin.InkBlue;
+        private static readonly Color Muted = GungeonSkin.InkMuted;
+        private static readonly Color Ink = GungeonSkin.Ink;
 
         private struct TrackerRow { public string Label; public string Value; public Color Color; }
         private struct ProgressRow { public string Label; public int Done; public int Total; public string Value; }
@@ -103,6 +107,8 @@ namespace ArchiGungeon.UserInterface
             showStatusIndicator = config.Bind("Menu", "ShowConnectionStatus", true, "Show a small connection status label at the top of the screen.");
             uiScale = config.Bind("Menu", "UIScale", 1f, "Extra size multiplier for the menu, on top of automatic resolution scaling.");
             pauseWhileOpen = config.Bind("Menu", "PauseWhileOpen", true, "Pause the game while the menu is open during a run.");
+            usePixelFont = config.Bind("Menu", "UseGameFont", true, "Draw menu text in the game's own pixel font.");
+            pixelFontName = config.Bind("Menu", "GameFontName", "", "Which of the game's fonts to use (names are listed in the debug log). Empty = the game's default UI font.");
 
             if (Instance == null)
             {
@@ -219,6 +225,11 @@ namespace ArchiGungeon.UserInterface
 
             KeepHintsTracked();
 
+            if (usePixelFont.Value)
+            {
+                PixelText.TryInit(pixelFontName.Value);
+            }
+
             // The game hides the system cursor during play; keep it visible while the window is up
             if (IsOpen && !Cursor.visible)
             {
@@ -309,9 +320,8 @@ namespace ArchiGungeon.UserInterface
             }
 
             bool connected = SessionHandler.IsConnected;
-            string text = connected ? "AP ● Connected" : $"AP ● Offline ({menuKey.Value} to connect)";
-            statusStyle.normal.textColor = connected ? Green : Red;
-            GUI.Label(new Rect(virtualWidth / 2f - 130f, 4f, 260f, 22f), text, statusStyle);
+            string text = connected ? "AP: Connected" : $"AP: Offline - press {menuKey.Value} to connect";
+            StatusPlate(virtualWidth, text, connected ? Green : Red);
         }
 
         private void DrawWindow(int id)
@@ -320,18 +330,18 @@ namespace ArchiGungeon.UserInterface
 
             // Title bar
             GUILayout.BeginHorizontal();
-            GUILayout.Label("<b>ArchipelaGun</b>", headerStyle);
+            Text("<b>ArchipelaGun</b>", headerStyle);
             GUILayout.FlexibleSpace();
             if (SessionHandler.IsConnected)
             {
-                GUILayout.Label(Colored($"● Connected as {SessionHandler.ConnectedSlotName}", Green), labelStyle);
+                Text(Colored($"Connected as {SessionHandler.ConnectedSlotName}", Green), labelStyle);
             }
             else
             {
-                GUILayout.Label(Colored(isConnecting ? "● Connecting…" : "● Not connected", isConnecting ? Gold : Red), labelStyle);
+                Text(Colored(isConnecting ? "Connecting..." : "Not connected", isConnecting ? Gold : Red), labelStyle);
             }
             GUILayout.Space(12f);
-            if (GUILayout.Button("Close", buttonStyle, GUILayout.Width(70f)))
+            if (Button("Close", buttonStyle, GUILayout.Width(70f)))
             {
                 ArchipelagoGUI.Instance?.OnClose();
             }
@@ -343,7 +353,7 @@ namespace ArchiGungeon.UserInterface
             for (int i = 0; i < TabNames.Length; i++)
             {
                 bool active = (int)currentTab == i;
-                if (GUILayout.Button(TabNames[i], active ? tabActiveStyle : tabStyle, GUILayout.Width(110f)))
+                if (Button(TabNames[i], active ? tabActiveStyle : tabStyle, GUILayout.Width(110f)))
                 {
                     currentTab = (Tab)i;
                     GUIUtility.keyboardControl = 0;
@@ -381,21 +391,21 @@ namespace ArchiGungeon.UserInterface
         {
             GUILayout.BeginVertical(boxStyle);
 
-            GUILayout.Label("Server", mutedStyle);
+            Text("Server", mutedStyle);
             GUILayout.BeginHorizontal();
             serverInput = GUILayout.TextField(serverInput, fieldStyle, GUILayout.ExpandWidth(true));
             GUILayout.Space(8f);
-            GUILayout.Label(":", labelStyle, GUILayout.Width(10f));
+            Text(":", labelStyle, GUILayout.Width(10f));
             portInput = GUILayout.TextField(portInput, 6, fieldStyle, GUILayout.Width(90f));
             GUILayout.EndHorizontal();
-            GUILayout.Label("You can also paste the whole address, like archipelago.gg:38281.", mutedStyle);
+            Text("You can also paste the whole address, like archipelago.gg:38281.", mutedStyle);
 
             GUILayout.Space(6f);
-            GUILayout.Label("Slot name", mutedStyle);
+            Text("Slot name", mutedStyle);
             slotInput = GUILayout.TextField(slotInput, fieldStyle);
 
             GUILayout.Space(6f);
-            GUILayout.Label("Password (leave empty if there isn't one)", mutedStyle);
+            Text("Password (leave empty if there isn't one)", mutedStyle);
             passwordInput = GUILayout.PasswordField(passwordInput, '*', fieldStyle);
 
             GUILayout.Space(10f);
@@ -403,18 +413,18 @@ namespace ArchiGungeon.UserInterface
             GUI.enabled = !isConnecting;
             if (!SessionHandler.IsConnected)
             {
-                if (GUILayout.Button(isConnecting ? "Connecting…" : "Connect", buttonStyle, GUILayout.Width(160f)))
+                if (Button(isConnecting ? "Connecting..." : "Connect", buttonStyle, GUILayout.Width(160f)))
                 {
                     StartCoroutine(ConnectNextFrame());
                 }
             }
             else
             {
-                if (GUILayout.Button("Disconnect", buttonStyle, GUILayout.Width(160f)))
+                if (Button("Disconnect", buttonStyle, GUILayout.Width(160f)))
                 {
                     SessionHandler.DisconnectFromSession();
                 }
-                if (GUILayout.Button("Reconnect", buttonStyle, GUILayout.Width(160f)))
+                if (Button("Reconnect", buttonStyle, GUILayout.Width(160f)))
                 {
                     StartCoroutine(ReconnectNextFrame());
                 }
@@ -425,13 +435,13 @@ namespace ArchiGungeon.UserInterface
             if (!string.IsNullOrEmpty(SessionHandler.LastConnectionError) && !SessionHandler.IsConnected)
             {
                 GUILayout.Space(8f);
-                GUILayout.Label(SessionHandler.LastConnectionError, errorStyle);
+                Text(SessionHandler.LastConnectionError, errorStyle);
             }
 
             if (!string.IsNullOrEmpty(SessionHandler.VersionWarning))
             {
                 GUILayout.Space(8f);
-                GUILayout.Label(SessionHandler.VersionWarning, errorStyle);
+                Text(SessionHandler.VersionWarning, errorStyle);
             }
 
             GUILayout.EndVertical();
@@ -440,12 +450,12 @@ namespace ArchiGungeon.UserInterface
             {
                 GUILayout.Space(10f);
                 GUILayout.BeginVertical(boxStyle);
-                GUILayout.Label("<b>Options</b>", labelStyle);
+                Text("<b>Options</b>", labelStyle);
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label("DeathLink", labelStyle, GUILayout.Width(160f));
+                Text("DeathLink", labelStyle, GUILayout.Width(160f));
                 int deathLink = SessionHandler.DeathLinkOn ? 1 : 0;
-                int newDeathLink = GUILayout.Toolbar(deathLink, new[] { "Off", "On" }, buttonStyle, GUILayout.Width(200f));
+                int newDeathLink = Toolbar(deathLink, new[] { "Off", "On" });
                 if (newDeathLink != deathLink)
                 {
                     SessionHandler.SetDeathLinkMode(newDeathLink);
@@ -453,9 +463,9 @@ namespace ArchiGungeon.UserInterface
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label("Enemy shuffle", labelStyle, GUILayout.Width(160f));
+                Text("Enemy shuffle", labelStyle, GUILayout.Width(160f));
                 int shuffle = SessionHandler.EnemyShuffleOn ? 1 : 0;
-                int newShuffle = GUILayout.Toolbar(shuffle, new[] { "Off", "On" }, buttonStyle, GUILayout.Width(200f));
+                int newShuffle = Toolbar(shuffle, new[] { "Off", "On" });
                 if (newShuffle != shuffle)
                 {
                     SessionHandler.SetEnemyShuffleMode(newShuffle);
@@ -463,11 +473,11 @@ namespace ArchiGungeon.UserInterface
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(6f);
-                if (GUILayout.Button("Retrieve items from server", buttonStyle, GUILayout.Width(260f)))
+                if (Button("Retrieve items from server", buttonStyle, GUILayout.Width(260f)))
                 {
                     SessionHandler.RetrieveItemsFromServer();
                 }
-                GUILayout.Label("Gives you any received items you haven't been handed yet this run.", mutedStyle);
+                Text("Gives you any received items you haven't been handed yet this run.", mutedStyle);
                 GUILayout.EndVertical();
             }
         }
@@ -493,7 +503,7 @@ namespace ArchiGungeon.UserInterface
             isConnecting = true;
             SessionHandler.SetConnectionError(null);
 
-            // Let the "Connecting…" label draw before the (blocking) login
+            // Let the "Connecting..." label draw before the (blocking) login
             yield return null;
             yield return null;
 
@@ -579,7 +589,7 @@ namespace ArchiGungeon.UserInterface
                     {
                         Label = "Chamber access",
                         Value = $"{access} / {ProgressionUnlocks.MaxChamberAccess}",
-                        Color = access >= ProgressionUnlocks.MaxChamberAccess ? Green : Color.white,
+                        Color = access >= ProgressionUnlocks.MaxChamberAccess ? Green : Ink,
                     });
                 }
 
@@ -592,7 +602,7 @@ namespace ArchiGungeon.UserInterface
                 if (ProgressionUnlocks.BulletPartsEnabled)
                 {
                     int parts = ProgressionUnlocks.BulletPartCount;
-                    unlockRows.Add(new TrackerRow { Label = "Bullet parts", Value = $"{parts} / 4", Color = parts >= 4 ? Green : Color.white });
+                    unlockRows.Add(new TrackerRow { Label = "Bullet parts", Value = $"{parts} / 4", Color = parts >= 4 ? Green : Ink });
                 }
 
                 if (ExtraChecks.TokensRequired > 0)
@@ -666,7 +676,7 @@ namespace ArchiGungeon.UserInterface
             {
                 Label = label,
                 Value = string.Format(format, count) + $"  of {max}",
-                Color = count > 0 ? Color.white : Muted,
+                Color = count > 0 ? Ink : Muted,
             });
         }
 
@@ -695,30 +705,30 @@ namespace ArchiGungeon.UserInterface
 
             // Left column: unlocks and goal
             GUILayout.BeginVertical(boxStyle, GUILayout.Width(windowRect.width * 0.45f));
-            GUILayout.Label("<b>Unlocks</b>", labelStyle);
+            Text("<b>Unlocks</b>", labelStyle);
             if (unlockRows.Count == 0)
             {
-                GUILayout.Label("No unlock items in this seed.", mutedStyle);
+                Text("No unlock items in this seed.", mutedStyle);
             }
             foreach (TrackerRow row in unlockRows)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(row.Label, labelStyle);
+                Text(row.Label, labelStyle);
                 GUILayout.FlexibleSpace();
-                GUILayout.Label(Colored(row.Value, row.Color), valueStyle);
+                Text(Colored(row.Value, row.Color), valueStyle);
                 GUILayout.EndHorizontal();
             }
 
             GUILayout.Space(12f);
-            GUILayout.Label("<b>Still needed for your goal</b>", labelStyle);
-            GUILayout.Label(completionText, mutedStyle);
+            Text("<b>Still needed for your goal</b>", labelStyle);
+            Text(completionText, mutedStyle);
             GUILayout.EndVertical();
 
             GUILayout.Space(10f);
 
             // Right column: checks
             GUILayout.BeginVertical(boxStyle);
-            GUILayout.Label("<b>Checks done</b>", labelStyle);
+            Text("<b>Checks done</b>", labelStyle);
             foreach (ProgressRow row in checkRows)
             {
                 DrawProgressRow(row);
@@ -727,7 +737,7 @@ namespace ArchiGungeon.UserInterface
             if (goalRows.Count > 0)
             {
                 GUILayout.Space(10f);
-                GUILayout.Label("<b>Next milestones</b>", labelStyle);
+                Text("<b>Next milestones</b>", labelStyle);
                 foreach (ProgressRow row in goalRows)
                 {
                     DrawProgressRow(row);
@@ -741,7 +751,7 @@ namespace ArchiGungeon.UserInterface
             {
                 ItemInfo last = receivedItems[receivedItems.Count - 1];
                 GUILayout.Space(8f);
-                GUILayout.Label($"Last received: {Colored(last.ItemName, ItemColor(last.Flags))} from {SafePlayerName(last)}", mutedStyle);
+                Text($"Last received: {Colored(last.ItemName, ItemColor(last.Flags))} from {SafePlayerName(last)}", mutedStyle);
             }
 
             GUILayout.EndScrollView();
@@ -750,9 +760,9 @@ namespace ArchiGungeon.UserInterface
         private void DrawProgressRow(ProgressRow row)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(row.Label, labelStyle);
+            Text(row.Label, labelStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label(row.Value, valueStyle);
+            Text(row.Value, valueStyle);
             GUILayout.EndHorizontal();
 
             Rect bar = GUILayoutUtility.GetRect(10f, 6f, GUILayout.ExpandWidth(true));
@@ -777,7 +787,7 @@ namespace ArchiGungeon.UserInterface
                 return;
             }
 
-            GUILayout.Label($"{receivedItems.Count} items received, newest first. Gold is progression, blue is useful. Hover an item for details.", mutedStyle);
+            Text($"{receivedItems.Count} items received, newest first. Gold is progression, blue is useful. Hover an item for details.", mutedStyle);
             itemsScroll = GUILayout.BeginScrollView(itemsScroll, boxStyle);
 
             // Hover is detected by hand: Unity's GUI.tooltip didn't show anything in-game
@@ -787,9 +797,9 @@ namespace ArchiGungeon.UserInterface
                 ItemInfo item = receivedItems[i];
                 string tip = i < receivedTooltips.Count ? receivedTooltips[i] : "";
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
-                GUILayout.Label($"from {SafePlayerName(item)}", mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
-                GUILayout.Label(item.LocationName ?? "", mutedStyle);
+                Text(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)), labelStyle, GUILayout.Width(windowRect.width * 0.4f));
+                Text($"from {SafePlayerName(item)}", mutedStyle, GUILayout.Width(windowRect.width * 0.2f));
+                Text(item.LocationName ?? "", mutedStyle);
                 GUILayout.EndHorizontal();
 
                 // The row's rect and the mouse are both in the scroll view's content space here
@@ -873,18 +883,18 @@ namespace ArchiGungeon.UserInterface
             }
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Hint for an item", labelStyle, GUILayout.Width(150f));
+            Text("Hint for an item", labelStyle, GUILayout.Width(150f));
             GUI.SetNextControlName("hintInput");
             hintInput = GUILayout.TextField(hintInput, fieldStyle, GUILayout.ExpandWidth(true));
             bool submit = Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return && GUI.GetNameOfFocusedControl() == "hintInput";
-            if ((GUILayout.Button("Ask", buttonStyle, GUILayout.Width(80f)) || submit) && hintInput.Trim().Length > 0)
+            if ((Button("Ask", buttonStyle, GUILayout.Width(80f)) || submit) && hintInput.Trim().Length > 0)
             {
                 SessionHandler.DataSender.SendChatMessage("!hint " + hintInput.Trim());
                 AddLog($"> !hint {hintInput.Trim()}");
                 hintInput = "";
             }
             GUILayout.EndHorizontal();
-            GUILayout.Label("Uses hint points. The server's answer shows in the Console tab.", mutedStyle);
+            Text("Uses hint points. The server's answer shows in the Console tab.", mutedStyle);
 
             List<HintRow> rows;
             lock (hintLock)
@@ -895,13 +905,13 @@ namespace ArchiGungeon.UserInterface
             hintsScroll = GUILayout.BeginScrollView(hintsScroll, boxStyle);
             if (rows.Count == 0)
             {
-                GUILayout.Label("No hints yet.", mutedStyle);
+                Text("No hints yet.", mutedStyle);
             }
             foreach (HintRow row in rows)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(row.Found ? Colored("Found", Green) : Colored("Not found", Gold), valueStyle, GUILayout.Width(100f));
-                GUILayout.Label(row.Progression ? Colored(row.Text, Gold) : row.Text, labelStyle);
+                Text(row.Found ? Colored("Found", Green) : Colored("Not found", Gold), valueStyle, GUILayout.Width(100f));
+                Text(row.Progression ? Colored(row.Text, Gold) : row.Text, labelStyle);
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
@@ -954,7 +964,7 @@ namespace ArchiGungeon.UserInterface
             consoleScroll = GUILayout.BeginScrollView(consoleScroll, boxStyle, GUILayout.ExpandHeight(true));
             foreach (string line in lines)
             {
-                GUILayout.Label(line, consoleStyle);
+                Text(line, consoleStyle);
             }
             GUILayout.EndScrollView();
 
@@ -964,12 +974,12 @@ namespace ArchiGungeon.UserInterface
             GUILayout.BeginHorizontal();
             GUI.SetNextControlName("consoleInput");
             consoleInput = GUILayout.TextField(consoleInput, fieldStyle, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Send", buttonStyle, GUILayout.Width(80f)))
+            if (Button("Send", buttonStyle, GUILayout.Width(80f)))
             {
                 SubmitConsole();
             }
             GUILayout.EndHorizontal();
-            GUILayout.Label("Commands like help, connect and deathlink run here. Anything starting with ! or other text goes to the server chat.", mutedStyle);
+            Text("Commands like help, connect and deathlink run here. Anything starting with ! or other text goes to the server chat.", mutedStyle);
         }
 
         private void HandleConsoleKeys()
@@ -1031,8 +1041,7 @@ namespace ArchiGungeon.UserInterface
         {
             if (!recapVisible)
             {
-                statusStyle.normal.textColor = Gold;
-                GUI.Label(new Rect(virtualWidth / 2f - 200f, 4f, 400f, 24f), $"{menuKey.Value}: this run's Archipelago recap", statusStyle);
+                StatusPlate(virtualWidth, $"{menuKey.Value}: this run's Archipelago recap", Gold);
                 return;
             }
 
@@ -1043,9 +1052,9 @@ namespace ArchiGungeon.UserInterface
 
             GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 12f, panel.width - 32f, panel.height - 24f));
             GUILayout.BeginHorizontal();
-            GUILayout.Label("<b>This run</b>", headerStyle);
+            Text("<b>This run</b>", headerStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label($"{menuKey.Value} hides · hover a line", mutedStyle, GUILayout.ExpandWidth(false));
+            Text($"{menuKey.Value} hides - hover a line", mutedStyle, GUILayout.ExpandWidth(false));
             GUILayout.EndHorizontal();
             GUILayout.Space(6f);
 
@@ -1053,14 +1062,14 @@ namespace ArchiGungeon.UserInterface
             recapScroll = GUILayout.BeginScrollView(recapScroll, boxStyle);
 
             List<KeyValuePair<string, string>> found = APPickUpItem.GetFoundThisRun();
-            GUILayout.Label($"<b>AP Items you picked up ({found.Count})</b>", labelStyle);
+            Text($"<b>AP Items you picked up ({found.Count})</b>", labelStyle);
             if (found.Count == 0)
             {
-                GUILayout.Label("None this run.", mutedStyle);
+                Text("None this run.", mutedStyle);
             }
             foreach (KeyValuePair<string, string> entry in found)
             {
-                GUILayout.Label(entry.Key, labelStyle);
+                Text(entry.Key, labelStyle);
                 if (Event.current.type == EventType.Repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
                 {
                     hoveredTip = entry.Key + (entry.Value.Length > 0 ? "\n" + entry.Value : "") + "\n\nSent to its owner when you picked it up.";
@@ -1069,11 +1078,11 @@ namespace ArchiGungeon.UserInterface
             }
 
             GUILayout.Space(10f);
-            GUILayout.Label($"<b>Items you were given ({receivedItems.Count})</b>", labelStyle);
+            Text($"<b>Items you were given ({receivedItems.Count})</b>", labelStyle);
             for (int i = receivedItems.Count - 1; i >= 0; i--)
             {
                 ItemInfo item = receivedItems[i];
-                GUILayout.Label(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)) + RecapResult(item, i), labelStyle);
+                Text(Colored(item.ItemName ?? $"Item {item.ItemId}", ItemColor(item.Flags)) + RecapResult(item, i), labelStyle);
                 if (Event.current.type == EventType.Repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
                 {
                     hoveredTip = i < receivedTooltips.Count ? receivedTooltips[i] : "";
@@ -1088,7 +1097,7 @@ namespace ArchiGungeon.UserInterface
             if (!string.IsNullOrEmpty(hoveredTip) && Event.current.type == EventType.Repaint)
             {
                 const float tipWidth = 380f;
-                float tipHeight = tooltipStyle.CalcHeight(new GUIContent(hoveredTip), tipWidth);
+                float tipHeight = TipHeight(hoveredTip, tipWidth);
                 Vector2 mouse = Event.current.mousePosition;
                 float x = Mathf.Min(mouse.x + 18f, virtualWidth - tipWidth - 8f);
                 float y = mouse.y + 18f;
@@ -1096,7 +1105,7 @@ namespace ArchiGungeon.UserInterface
                 {
                     y = Mathf.Max(8f, mouse.y - tipHeight - 8f);
                 }
-                GUI.Box(new Rect(x, y, tipWidth, tipHeight), hoveredTip, tooltipStyle);
+                TipBox(new Rect(x, y, tipWidth, tipHeight), hoveredTip);
             }
         }
 
@@ -1116,7 +1125,142 @@ namespace ArchiGungeon.UserInterface
             }
             int end = tip.IndexOf('\n', at);
             string name = end < 0 ? tip.Substring(at + marker.Length) : tip.Substring(at + marker.Length, end - at - marker.Length);
-            return "  →  " + name;
+            return "  ->  " + name;
+        }
+
+        #endregion
+
+        #region Game-font drawing
+        // Text goes through the game's pixel font when it's available (PixelText), else Unity's default font.
+
+        private bool UsePixel
+        {
+            get { return usePixelFont.Value && PixelText.Available; }
+        }
+
+        // Line height in menu pixels for each text style
+        private float SizeOf(GUIStyle style)
+        {
+            if (style == headerStyle) return 30f;
+            if (style == mutedStyle || style == consoleStyle || style == statusStyle || style == tooltipStyle) return 17f;
+            if (style == errorStyle) return 19f;
+            return 21f;
+        }
+
+        // Wrapped labels need their width before layout; remember last frame's width per label
+        private readonly Dictionary<string, float> lastWidths = new Dictionary<string, float>();
+
+        private void Text(string text, GUIStyle style, params GUILayoutOption[] options)
+        {
+            if (!UsePixel)
+            {
+                GUILayout.Label(text, style, options);
+                return;
+            }
+
+            text = text ?? "";
+            float scale = PixelText.ScaleFor(SizeOf(style));
+            string key = style.GetHashCode() + "|" + text;
+            float wrap = 0f;
+            if (style.wordWrap && !lastWidths.TryGetValue(key, out wrap))
+            {
+                wrap = Mathf.Max(100f, windowRect.width - 80f);
+            }
+
+            Vector2 size = PixelText.Measure(text, scale, wrap);
+            Rect rect = style.wordWrap && (options == null || options.Length == 0)
+                ? GUILayoutUtility.GetRect(10f, size.y, style, GUILayout.ExpandWidth(true))
+                : GUILayoutUtility.GetRect(size.x + 2f, size.y, style, options);
+
+            if (Event.current.type == EventType.Repaint)
+            {
+                if (style.wordWrap)
+                {
+                    if (lastWidths.Count > 4000) lastWidths.Clear();
+                    lastWidths[key] = rect.width;
+                }
+                PixelText.Draw(rect, text, style.normal.textColor, scale, style.alignment, style.wordWrap);
+            }
+        }
+
+        private bool Button(string text, GUIStyle style, params GUILayoutOption[] options)
+        {
+            if (!UsePixel)
+            {
+                return GUILayout.Button(text, style, options);
+            }
+
+            float scale = PixelText.ScaleFor(19f);
+            Vector2 size = PixelText.Measure(text, scale, 0f);
+            Rect rect = GUILayoutUtility.GetRect(size.x + style.padding.horizontal, size.y + style.padding.vertical, style, options);
+            bool clicked = GUI.Button(rect, GUIContent.none, style);
+            bool hover = rect.Contains(Event.current.mousePosition);
+            Color color = hover ? style.hover.textColor : style.normal.textColor;
+            if (!GUI.enabled) color.a = 0.5f;
+            PixelText.Draw(rect, text, color, scale, TextAnchor.MiddleCenter, false);
+            return clicked;
+        }
+
+        private int Toolbar(int selected, string[] labels)
+        {
+            int result = selected;
+            GUILayout.BeginHorizontal(GUILayout.Width(220f));
+            for (int i = 0; i < labels.Length; i++)
+            {
+                if (Button(labels[i], i == selected ? tabActiveStyle : buttonStyle, GUILayout.ExpandWidth(true)))
+                {
+                    result = i;
+                }
+            }
+            GUILayout.EndHorizontal();
+            return result;
+        }
+
+        // Small dark plate at the top of the screen (connection status, death-screen hint)
+        private void StatusPlate(float virtualWidth, string text, Color dot)
+        {
+            float scale = PixelText.ScaleFor(17f);
+            string shown = UsePixel ? $"<color=#{ColorUtility.ToHtmlStringRGB(Lighten(dot))}>{text}</color>" : text;
+            Vector2 size = UsePixel ? PixelText.Measure(shown, scale, 0f) : statusStyle.CalcSize(new GUIContent(text));
+            Rect plate = new Rect(virtualWidth / 2f - size.x / 2f - 14f, 6f, size.x + 28f, size.y + 12f);
+            GUI.Box(plate, GUIContent.none, tooltipStyle);
+            if (UsePixel)
+            {
+                PixelText.Draw(plate, shown, GungeonSkin.PlateText, scale, TextAnchor.MiddleCenter, false);
+            }
+            else
+            {
+                statusStyle.normal.textColor = Lighten(dot);
+                GUI.Label(plate, text, statusStyle);
+            }
+        }
+
+        private static Color Lighten(Color c)
+        {
+            return Color.Lerp(c, Color.white, 0.45f);
+        }
+
+        private float TipHeight(string tip, float width)
+        {
+            if (!UsePixel)
+            {
+                return tooltipStyle.CalcHeight(new GUIContent(tip), width);
+            }
+            float scale = PixelText.ScaleFor(SizeOf(tooltipStyle));
+            return PixelText.Measure(tip, scale, width - tooltipStyle.padding.horizontal).y + tooltipStyle.padding.vertical;
+        }
+
+        private void TipBox(Rect rect, string tip)
+        {
+            if (!UsePixel)
+            {
+                GUI.Box(rect, tip, tooltipStyle);
+                return;
+            }
+            GUI.Box(rect, GUIContent.none, tooltipStyle);
+            Rect inner = new Rect(rect.x + tooltipStyle.padding.left, rect.y + tooltipStyle.padding.top,
+                rect.width - tooltipStyle.padding.horizontal, rect.height - tooltipStyle.padding.vertical);
+            PixelText.Draw(inner, tip, GungeonSkin.PlateText, PixelText.ScaleFor(SizeOf(tooltipStyle)), TextAnchor.UpperLeft, true);
         }
 
         #endregion
@@ -1132,7 +1276,7 @@ namespace ArchiGungeon.UserInterface
             }
 
             const float width = 380f;
-            float height = tooltipStyle.CalcHeight(new GUIContent(tip), width);
+            float height = TipHeight(tip, width);
             Vector2 mouse = Event.current.mousePosition;
             float x = Mathf.Min(mouse.x + 18f, windowRect.width - width - 8f);
             float y = mouse.y + 18f;
@@ -1140,15 +1284,15 @@ namespace ArchiGungeon.UserInterface
             {
                 y = Mathf.Max(8f, mouse.y - height - 8f);
             }
-            GUI.Box(new Rect(x, y, width, height), tip, tooltipStyle);
+            TipBox(new Rect(x, y, width, height), tip);
         }
 
         private void DrawNotConnected()
         {
             GUILayout.BeginVertical(boxStyle);
-            GUILayout.Label("You're not connected yet.", labelStyle);
-            GUILayout.Label("Connect on the Connect tab to see your progress here.", mutedStyle);
-            if (GUILayout.Button("Go to Connect", buttonStyle, GUILayout.Width(180f)))
+            Text("You're not connected yet.", labelStyle);
+            Text("Connect on the Connect tab to see your progress here.", mutedStyle);
+            if (Button("Go to Connect", buttonStyle, GUILayout.Width(180f)))
             {
                 currentTab = Tab.Connect;
             }
@@ -1165,7 +1309,7 @@ namespace ArchiGungeon.UserInterface
             if ((flags & ItemFlags.Advancement) != 0) return Gold;
             if ((flags & ItemFlags.NeverExclude) != 0) return Blue;
             if ((flags & ItemFlags.Trap) != 0) return Red;
-            return Color.white;
+            return Ink;
         }
 
         private static string Colored(string text, Color color)
@@ -1190,74 +1334,80 @@ namespace ArchiGungeon.UserInterface
             }
             stylesBuilt = true;
 
-            Texture2D windowBack = SolidTexture(new Color(0.09f, 0.09f, 0.11f, 0.97f));
-            Texture2D panelBack = SolidTexture(new Color(0.14f, 0.14f, 0.17f, 1f));
-            Texture2D buttonBack = SolidTexture(new Color(0.22f, 0.22f, 0.27f, 1f));
-            Texture2D buttonHover = SolidTexture(new Color(0.3f, 0.3f, 0.36f, 1f));
-            Texture2D activeBack = SolidTexture(new Color(0.2f, 0.42f, 0.25f, 1f));
-            Texture2D fieldBack = SolidTexture(new Color(0.05f, 0.05f, 0.07f, 1f));
-            Texture2D barBack = SolidTexture(new Color(0.25f, 0.25f, 0.3f, 1f));
-            Texture2D barFill = SolidTexture(new Color(0.4f, 0.8f, 0.45f, 1f));
+            Texture2D book = GungeonSkin.BookTexture();
+            Texture2D panel = GungeonSkin.PanelTexture();
+            Texture2D plate = GungeonSkin.PlateTexture(GungeonSkin.Plate);
+            Texture2D plateHover = GungeonSkin.PlateTexture(GungeonSkin.PlateHover);
+            Texture2D tag = GungeonSkin.TagTexture(GungeonSkin.Tag);
+            Texture2D tagHover = GungeonSkin.TagTexture(GungeonSkin.TagShade);
 
-            windowStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(16, 16, 12, 14) };
-            windowStyle.normal.background = windowBack;
-            windowStyle.onNormal.background = windowBack;
+            windowStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(30, 30, 26, 26), border = GungeonSkin.BookBorder };
+            windowStyle.normal.background = book;
+            windowStyle.onNormal.background = book;
+            windowStyle.focused.background = book;
+            windowStyle.onFocused.background = book;
 
-            labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true, wordWrap = true };
-            labelStyle.normal.textColor = Color.white;
+            labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true, wordWrap = true, margin = new RectOffset(2, 2, 2, 2) };
+            labelStyle.normal.textColor = GungeonSkin.Ink;
 
             mutedStyle = new GUIStyle(labelStyle) { fontSize = 14 };
-            mutedStyle.normal.textColor = Muted;
+            mutedStyle.normal.textColor = GungeonSkin.InkMuted;
 
             valueStyle = new GUIStyle(labelStyle) { wordWrap = false, alignment = TextAnchor.MiddleRight };
             consoleStyle = new GUIStyle(labelStyle) { fontSize = 14, margin = new RectOffset(4, 4, 0, 0) };
 
             errorStyle = new GUIStyle(labelStyle) { fontSize = 15 };
-            errorStyle.normal.textColor = Red;
+            errorStyle.normal.textColor = GungeonSkin.InkRed;
 
             headerStyle = new GUIStyle(labelStyle) { fontSize = 22, wordWrap = false };
-            headerStyle.normal.textColor = Green;
+            headerStyle.normal.textColor = GungeonSkin.InkRed;
 
             statusStyle = new GUIStyle(labelStyle) { fontSize = 14, alignment = TextAnchor.MiddleCenter, wordWrap = false };
 
-            boxStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(12, 12, 10, 10), margin = new RectOffset(0, 0, 0, 0) };
-            boxStyle.normal.background = panelBack;
+            boxStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(16, 16, 12, 12), margin = new RectOffset(0, 0, 0, 0), border = GungeonSkin.PanelBorder };
+            boxStyle.normal.background = panel;
 
-            buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 16, padding = new RectOffset(10, 10, 6, 6) };
-            buttonStyle.normal.background = buttonBack;
-            buttonStyle.hover.background = buttonHover;
-            buttonStyle.active.background = activeBack;
-            buttonStyle.onNormal.background = activeBack;
-            buttonStyle.onHover.background = activeBack;
-            buttonStyle.normal.textColor = Color.white;
+            buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 16, padding = new RectOffset(14, 14, 8, 8), border = GungeonSkin.PlateBorder, margin = new RectOffset(3, 3, 3, 3) };
+            buttonStyle.normal.background = plate;
+            buttonStyle.hover.background = plateHover;
+            buttonStyle.active.background = tag;
+            buttonStyle.focused.background = plate;
+            buttonStyle.onNormal.background = tag;
+            buttonStyle.onHover.background = tagHover;
+            buttonStyle.normal.textColor = GungeonSkin.PlateText;
             buttonStyle.hover.textColor = Color.white;
-            buttonStyle.onNormal.textColor = Color.white;
-            buttonStyle.onHover.textColor = Color.white;
+            buttonStyle.active.textColor = GungeonSkin.InkRed;
+            buttonStyle.onNormal.textColor = GungeonSkin.InkRed;
+            buttonStyle.onHover.textColor = GungeonSkin.InkRed;
 
             tabStyle = new GUIStyle(buttonStyle);
+            // Selected tab / option: a tan tag with red text, like the death screen's values
             tabActiveStyle = new GUIStyle(buttonStyle);
-            tabActiveStyle.normal.background = activeBack;
-            tabActiveStyle.hover.background = activeBack;
+            tabActiveStyle.normal.background = tag;
+            tabActiveStyle.hover.background = tagHover;
+            tabActiveStyle.normal.textColor = GungeonSkin.InkRed;
+            tabActiveStyle.hover.textColor = GungeonSkin.InkRed;
 
-            fieldStyle = new GUIStyle(GUI.skin.textField) { fontSize = 16, padding = new RectOffset(8, 8, 6, 6) };
-            fieldStyle.normal.background = fieldBack;
-            fieldStyle.focused.background = fieldBack;
-            fieldStyle.hover.background = fieldBack;
-            fieldStyle.normal.textColor = Color.white;
-            fieldStyle.focused.textColor = Color.white;
+            fieldStyle = new GUIStyle(GUI.skin.textField) { fontSize = 16, padding = new RectOffset(10, 10, 7, 7), border = GungeonSkin.TagBorder };
+            fieldStyle.normal.background = tag;
+            fieldStyle.focused.background = tag;
+            fieldStyle.hover.background = tag;
+            fieldStyle.normal.textColor = GungeonSkin.Ink;
+            fieldStyle.focused.textColor = GungeonSkin.Ink;
+            fieldStyle.hover.textColor = GungeonSkin.Ink;
 
             tooltipStyle = new GUIStyle(GUI.skin.box)
             {
                 fontSize = 14, wordWrap = true, richText = true, alignment = TextAnchor.UpperLeft,
-                padding = new RectOffset(10, 10, 8, 8),
+                padding = new RectOffset(14, 14, 12, 12), border = GungeonSkin.PlateBorder,
             };
-            tooltipStyle.normal.background = SolidTexture(new Color(0.03f, 0.03f, 0.05f, 0.97f));
-            tooltipStyle.normal.textColor = Color.white;
+            tooltipStyle.normal.background = plate;
+            tooltipStyle.normal.textColor = GungeonSkin.PlateText;
 
-            rowHighlightStyle = new GUIStyle { normal = { background = SolidTexture(new Color(1f, 1f, 1f, 0.08f)) } };
+            rowHighlightStyle = new GUIStyle { normal = { background = GungeonSkin.Solid(new Color(0.5f, 0.35f, 0.25f, 0.18f)) } };
 
-            barBackStyle = new GUIStyle { normal = { background = barBack } };
-            barFillStyle = new GUIStyle { normal = { background = barFill } };
+            barBackStyle = new GUIStyle { normal = { background = GungeonSkin.Solid(GungeonSkin.PageLine) } };
+            barFillStyle = new GUIStyle { normal = { background = GungeonSkin.Solid(GungeonSkin.Cover) } };
         }
 
         #endregion
