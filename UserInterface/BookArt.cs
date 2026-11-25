@@ -106,6 +106,19 @@ namespace ArchiGungeon.UserInterface
             GUI.color = previous;
         }
 
+        /// <summary>Draws one pixel column of a sprite (column counted from its left) stretched over dest.</summary>
+        public static void SpriteColumn(dfAtlas atlas, string name, int column, Rect dest)
+        {
+            dfAtlas.ItemInfo item;
+            if (Event.current.type != EventType.Repaint || !TryGet(atlas, name, out item) || item.sizeInPixels.x <= 0)
+            {
+                return;
+            }
+            float colWidth = item.region.width / item.sizeInPixels.x;
+            Rect uv = new Rect(item.region.x + colWidth * column, item.region.y, colWidth, item.region.height);
+            GUI.DrawTextureWithTexCoords(dest, atlas.Texture, uv);
+        }
+
         /// <summary>Draws a sprite at its own size times scale, top-left at position.</summary>
         public static void Sprite(dfAtlas atlas, string name, Vector2 position, int scale)
         {

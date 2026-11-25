@@ -323,7 +323,18 @@ namespace ArchiGungeon.UserInterface
                 bool hover = r.Contains(Event.current.mousePosition);
                 bool selected = (int)currentTab == i;
                 string sprite = BookmarkSprites[i] + (selected ? "_select_001" : (hover ? "_hover_001" : "_001"));
-                BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white);
+                if (!selected && !hover)
+                {
+                    // The closed tab only peeks out a few pixels; pull it out further and fill the gap
+                    // with a stretched slice of its band so it's easier to click
+                    const int Extend = 7;
+                    BookArt.Sprite(BookArt.Ammonomicon, sprite, new Rect(r.x - Extend * P, r.y, r.width, r.height), Color.white);
+                    BookArt.SpriteColumn(BookArt.Ammonomicon, sprite, 26, new Rect(r.xMax - Extend * P, r.y, Extend * P, r.height));
+                }
+                else
+                {
+                    BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white);
+                }
 
                 if (hover)
                 {
