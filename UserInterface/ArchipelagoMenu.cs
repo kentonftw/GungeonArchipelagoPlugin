@@ -17,7 +17,7 @@ namespace ArchiGungeon.UserInterface
     /// The ArchipelaGun window: Connect, Tracker, Items, Hints and Console tabs, drawn with Unity's IMGUI.
     /// Opened and closed with the menu key (F8 by default). This is the only way to connect.
     /// </summary>
-    public class ArchipelagoMenu : MonoBehaviour
+    public partial class ArchipelagoMenu : MonoBehaviour
     {
         public static ArchipelagoMenu Instance { get; private set; }
 
@@ -29,6 +29,7 @@ namespace ArchiGungeon.UserInterface
         private static ConfigEntry<bool> showStatusIndicator;
         private static ConfigEntry<float> uiScale;
         private static ConfigEntry<bool> pauseWhileOpen;
+        private static ConfigEntry<bool> useBookMenu;
 
         // ---- window state
         public bool IsOpen { get; private set; }
@@ -103,6 +104,7 @@ namespace ArchiGungeon.UserInterface
             showStatusIndicator = config.Bind("Menu", "ShowConnectionStatus", true, "Show a small connection status label at the top of the screen.");
             uiScale = config.Bind("Menu", "UIScale", 1f, "Extra size multiplier for the menu, on top of automatic resolution scaling.");
             pauseWhileOpen = config.Bind("Menu", "PauseWhileOpen", true, "Pause the game while the menu is open during a run.");
+            useBookMenu = config.Bind("Menu", "AmmonomiconStyle", true, "Draw the menu as an Ammonomicon page using the game's own art. Turn off for the plain window.");
 
             if (Instance == null)
             {
@@ -178,6 +180,8 @@ namespace ArchiGungeon.UserInterface
 
         private void Update()
         {
+            BookArt.TryInit();
+
             if (Time.unscaledTime >= nextDeathScreenCheck)
             {
                 nextDeathScreenCheck = Time.unscaledTime + 0.5f;
@@ -269,6 +273,15 @@ namespace ArchiGungeon.UserInterface
                 {
                     DrawStatusIndicator(virtualWidth);
                 }
+                GUI.matrix = previousMatrix;
+                return;
+            }
+
+            if (UseBook)
+            {
+                GUI.matrix = Matrix4x4.identity;
+                HandleGlobalKeys();
+                DrawBook();
                 GUI.matrix = previousMatrix;
                 return;
             }
