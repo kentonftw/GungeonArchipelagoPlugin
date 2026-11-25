@@ -146,6 +146,7 @@ namespace ArchiGungeon
             ItemArchipelago.APPickUpItem.TickPreview();
             ItemArchipelago.ExtraChecks.Tick();
             UserInterface.UIDump.Tick();
+            UserInterface.PauseMenuButton.Tick();
 
             return;
         }
