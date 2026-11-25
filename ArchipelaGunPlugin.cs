@@ -145,6 +145,7 @@ namespace ArchiGungeon
             SessionHandler.TickCheckItemQueue();
             ItemArchipelago.APPickUpItem.TickPreview();
             ItemArchipelago.ExtraChecks.Tick();
+            UserInterface.UIDump.Tick();
 
             return;
         }

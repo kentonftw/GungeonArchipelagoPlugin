@@ -74,6 +74,7 @@
     <Compile Include="UserInterface\TextBoxHandler.cs" />
     <Compile Include="UserInterface\ArchipelagoMenu.cs" />
     <Compile Include="UserInterface\ItemTooltips.cs" />
+    <Compile Include="UserInterface\UIDump.cs" />
     <Compile Include="Character\ElevatorOperator.cs" />
   </ItemGroup>
   <ItemGroup>
