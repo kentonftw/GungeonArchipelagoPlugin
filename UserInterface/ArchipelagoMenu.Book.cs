@@ -74,12 +74,13 @@ namespace ArchiGungeon.UserInterface
 
             // Dim the game, then the book
             Solid(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.65f));
+            // Bookmarks first so the cover hides where they join the book
+            DrawBookmarks();
             if (Event.current.type == EventType.Repaint)
             {
                 GUI.DrawTexture(BookRect(0, 0, BookArt.BookWidth, BookArt.BookHeight), BookArt.Book);
             }
-
-            DrawBookmarks();
+            DrawBookmarkTag();
 
             // Left page: title, status, then the tab's main content
             RectInt left = BookArt.LeftPage;
@@ -293,28 +294,41 @@ namespace ArchiGungeon.UserInterface
             BLine();
         }
 
+        private static readonly string[] BookmarkNames = { "Connect", "Tracker", "Items", "Hints", "Console" };
+        private int hoveredBookmark = -1;
+        private Rect hoveredBookmarkRect;
+
+        // Name tag to the left of the hovered bookmark, kept on screen
+        private void DrawBookmarkTag()
+        {
+            if (hoveredBookmark < 0) return;
+            string name = BookmarkNames[hoveredBookmark];
+            Rect r = hoveredBookmarkRect;
+            int scale = BodyScale;
+            Vector2 size = BookArt.Font.Measure(name, scale, 0f);
+            float tagW = size.x + 8 * P;
+            float tagH = BookArt.Font.Line(scale) + 4 * P;
+            Rect tag = new Rect(Mathf.Max(0f, r.x - tagW - P), r.y + Mathf.Round((r.height - tagH) / 2f), tagW, tagH);
+            BookArt.Sliced(BookArt.Ammonomicon, "death_page_text_boxes_001", tag, P, Color.white);
+            BookArt.Font.Draw(tag, name, PlateInk, scale, 1, false, true);
+        }
+
         private void DrawBookmarks()
         {
-            string[] names = { "Connect", "Tracker", "Items", "Hints", "Console" };
+            hoveredBookmark = -1;
             for (int i = 0; i < BookmarkSprites.Length; i++)
             {
-                // Down the book's left edge, mirrored so they stick out to the left like the Ammonomicon's
-                Rect r = BookRect(BookArt.BookWidth - 418 - 28, 26 + i * 25, 28, 22);
+                // Down the book's left edge (the cover starts at x 56), tucked 2px under the cover
+                Rect r = BookRect(56 + 2 - 28, 26 + i * 25, 28, 22);
                 bool hover = r.Contains(Event.current.mousePosition);
                 bool selected = (int)currentTab == i;
                 string sprite = BookmarkSprites[i] + (selected ? "_select_001" : (hover ? "_hover_001" : "_001"));
-                BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white, true);
+                BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white);
 
                 if (hover)
                 {
-                    // Name tag to the left of the bookmark, kept on screen
-                    int scale = BodyScale;
-                    Vector2 size = BookArt.Font.Measure(names[i], scale, 0f);
-                    float tagW = size.x + 8 * P;
-                    float tagH = BookArt.Font.Line(scale) + 4 * P;
-                    Rect tag = new Rect(Mathf.Max(0f, r.x - tagW - P), r.y + Mathf.Round((r.height - tagH) / 2f), tagW, tagH);
-                    BookArt.Sliced(BookArt.Ammonomicon, "death_page_text_boxes_001", tag, P, Color.white);
-                    BookArt.Font.Draw(tag, names[i], PlateInk, scale, 1, false, true);
+                    hoveredBookmark = i;
+                    hoveredBookmarkRect = r;
                 }
 
                 if (GUI.Button(r, GUIContent.none, GUIStyle.none))
