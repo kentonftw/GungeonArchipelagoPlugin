@@ -18,11 +18,12 @@ namespace ArchiGungeon.UserInterface
         private static bool dumpedAssets = false;
         private static bool dumpedHud = false;
         private static bool dumpedAmmonomicon = false;
+        private static bool dumpedImages = false;
         private static float nextCheck = 0f;
 
         public static void Tick()
         {
-            if (Time.realtimeSinceStartup < nextCheck || (dumpedAssets && dumpedHud && dumpedAmmonomicon))
+            if (Time.realtimeSinceStartup < nextCheck || (dumpedAssets && dumpedHud && dumpedAmmonomicon && dumpedImages))
             {
                 return;
             }
@@ -42,21 +43,29 @@ namespace ArchiGungeon.UserInterface
                     Write("Assets", DumpAssets());
                 }
 
-                if (!dumpedAmmonomicon)
+                // The Ammonomicon's managers exist (as loaded prefabs) once the game has loaded them,
+                // whether or not the book has been opened
+                if (!dumpedAmmonomicon && dumpedAssets)
                 {
-                    AmmonomiconController ammonomicon = UnityEngine.Object.FindObjectOfType<AmmonomiconController>();
-                    if (ammonomicon != null && ammonomicon.GetComponentsInChildren<dfControl>(true).Length > 0)
+                    StringBuilder book = new StringBuilder();
+                    foreach (dfGUIManager manager in Resources.FindObjectsOfTypeAll<dfGUIManager>())
+                    {
+                        if (manager.name.Contains("Ammonomicon") || manager.name.Contains("Page"))
+                        {
+                            book.Append(DumpControls(manager.gameObject));
+                        }
+                    }
+                    if (book.Length > 0)
                     {
                         dumpedAmmonomicon = true;
-                        Write("Ammonomicon", DumpControls(ammonomicon.gameObject));
-                        // The book's pages live under their own managers too
-                        StringBuilder pages = new StringBuilder();
-                        foreach (AmmonomiconPageRenderer page in UnityEngine.Object.FindObjectsOfType<AmmonomiconPageRenderer>())
-                        {
-                            pages.Append(DumpControls(page.gameObject));
-                        }
-                        Write("AmmonomiconPages", pages.ToString());
+                        Write("Ammonomicon", book.ToString());
                     }
+                }
+
+                if (!dumpedImages && dumpedAmmonomicon)
+                {
+                    dumpedImages = true;
+                    DumpImages();
                 }
             }
             catch (Exception e)
@@ -70,6 +79,81 @@ namespace ArchiGungeon.UserInterface
             string path = Path.Combine(BepInEx.Paths.ConfigPath, $"ArchipelaGunUIDump_{part}.txt");
             File.WriteAllText(path, text);
             ArchDebugPrint.DebugLog(DebugCategory.UserInterface, $"Wrote {path}");
+        }
+
+        // Saves each UI atlas (and the textures the Ammonomicon draws directly) as PNGs, plus every sprite's
+        // pixel rectangle, so the menu can be designed from what the pieces actually look like
+        private static void DumpImages()
+        {
+            string folder = Path.Combine(BepInEx.Paths.ConfigPath, "ArchipelaGunUIDump_Images");
+            Directory.CreateDirectory(folder);
+            StringBuilder regions = new StringBuilder();
+
+            foreach (dfAtlas atlas in Resources.FindObjectsOfTypeAll<dfAtlas>())
+            {
+                if (atlas.Texture == null)
+                {
+                    continue;
+                }
+                SavePng(atlas.Texture, Path.Combine(folder, Safe(atlas.name) + ".png"));
+                int w = atlas.Texture.width, h = atlas.Texture.height;
+                regions.AppendLine($"--- {atlas.name} {w}x{h}");
+                foreach (dfAtlas.ItemInfo item in atlas.Items.OrderBy(i => i.name))
+                {
+                    Rect r = item.region;
+                    // x, y from the top-left in pixels, then width and height
+                    regions.AppendLine($"  {item.name} {Mathf.RoundToInt(r.x * w)} {Mathf.RoundToInt((1f - r.yMax) * h)} {Mathf.RoundToInt(r.width * w)} {Mathf.RoundToInt(r.height * h)}");
+                }
+            }
+
+            foreach (dfTextureSprite sprite in Resources.FindObjectsOfTypeAll<dfTextureSprite>())
+            {
+                Texture texture = sprite.Texture;
+                if (texture != null && (sprite.name.Contains("Page") || sprite.name.Contains("Book") || sprite.name.Contains("BG")
+                    || sprite.transform.root.name.Contains("Ammonomicon")))
+                {
+                    SavePng(texture, Path.Combine(folder, "tex_" + Safe(sprite.name) + "_" + Safe(texture.name) + ".png"));
+                }
+            }
+
+            File.WriteAllText(Path.Combine(folder, "regions.txt"), regions.ToString());
+            ArchDebugPrint.DebugLog(DebugCategory.UserInterface, $"Wrote UI images to {folder}");
+        }
+
+        // Game textures usually aren't readable, so copy through a RenderTexture first
+        private static void SavePng(Texture texture, string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    return;
+                }
+                RenderTexture rt = RenderTexture.GetTemporary(texture.width, texture.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                RenderTexture previous = RenderTexture.active;
+                Graphics.Blit(texture, rt);
+                RenderTexture.active = rt;
+                Texture2D copy = new Texture2D(texture.width, texture.height, TextureFormat.ARGB32, false);
+                copy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                copy.Apply();
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(rt);
+                File.WriteAllBytes(path, ImageConversion.EncodeToPNG(copy));
+                UnityEngine.Object.Destroy(copy);
+            }
+            catch (Exception e)
+            {
+                ArchDebugPrint.DebugLog(DebugCategory.UserInterface, $"Couldn't save {path}: {e.Message}");
+            }
+        }
+
+        private static string Safe(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                name = name.Replace(c, '_');
+            }
+            return name.Replace(' ', '_');
         }
 
         private static string DumpAssets()
