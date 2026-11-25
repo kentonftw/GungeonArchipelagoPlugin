@@ -691,7 +691,7 @@ namespace ArchiGungeon.UserInterface
 
         private void BookConsoleRight()
         {
-            BPlate("Send");
+            BPlate("Command");
             // Reuses the plain menu's console keys (Enter, up/down history) by sharing its control name
             HandleConsoleKeys();
             consoleInput = BField(consoleInput, "consoleInput");
