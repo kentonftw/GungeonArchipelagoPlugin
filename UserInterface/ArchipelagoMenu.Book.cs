@@ -298,23 +298,23 @@ namespace ArchiGungeon.UserInterface
             string[] names = { "Connect", "Tracker", "Items", "Hints", "Console" };
             for (int i = 0; i < BookmarkSprites.Length; i++)
             {
-                Rect r = BookRect(418, 26 + i * 25, 28, 22);
+                // Down the book's left edge, mirrored so they stick out to the left like the Ammonomicon's
+                Rect r = BookRect(BookArt.BookWidth - 418 - 28, 26 + i * 25, 28, 22);
                 bool hover = r.Contains(Event.current.mousePosition);
                 bool selected = (int)currentTab == i;
-                string sprite = BookmarkSprites[i] + (selected ? (hover ? "_select_hover_001" : "_select_001") : (hover ? "_hover_001" : "_001"));
-                BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white);
+                string sprite = BookmarkSprites[i] + (selected ? "_select_001" : (hover ? "_hover_001" : "_001"));
+                BookArt.Sprite(BookArt.Ammonomicon, sprite, r, Color.white, true);
 
-                if (hover || selected)
+                if (hover)
                 {
-                    // Name tag to the right of the bookmark
+                    // Name tag to the left of the bookmark, kept on screen
                     int scale = BodyScale;
                     Vector2 size = BookArt.Font.Measure(names[i], scale, 0f);
-                    Rect tag = new Rect(r.xMax + P, r.y + (r.height - BookArt.Font.Line(scale) - 4 * P) / 2f, size.x + 8 * P, BookArt.Font.Line(scale) + 4 * P);
-                    if (hover)
-                    {
-                        BookArt.Sliced(BookArt.Ammonomicon, "death_page_text_boxes_001", tag, P, Color.white);
-                        BookArt.Font.Draw(tag, names[i], PlateInk, scale, 1, false, true);
-                    }
+                    float tagW = size.x + 8 * P;
+                    float tagH = BookArt.Font.Line(scale) + 4 * P;
+                    Rect tag = new Rect(Mathf.Max(0f, r.x - tagW - P), r.y + Mathf.Round((r.height - tagH) / 2f), tagW, tagH);
+                    BookArt.Sliced(BookArt.Ammonomicon, "death_page_text_boxes_001", tag, P, Color.white);
+                    BookArt.Font.Draw(tag, names[i], PlateInk, scale, 1, false, true);
                 }
 
                 if (GUI.Button(r, GUIContent.none, GUIStyle.none))

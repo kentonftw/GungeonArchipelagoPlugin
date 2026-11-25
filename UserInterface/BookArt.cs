@@ -1,3 +1,4 @@
+using System.Text;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -87,7 +88,7 @@ namespace ArchiGungeon.UserInterface
         }
 
         /// <summary>Draws a sprite stretched to dest.</summary>
-        public static void Sprite(dfAtlas atlas, string name, Rect dest, Color tint)
+        public static void Sprite(dfAtlas atlas, string name, Rect dest, Color tint, bool flipX = false)
         {
             dfAtlas.ItemInfo item;
             if (Event.current.type != EventType.Repaint || !TryGet(atlas, name, out item))
@@ -96,7 +97,12 @@ namespace ArchiGungeon.UserInterface
             }
             Color previous = GUI.color;
             GUI.color = tint;
-            GUI.DrawTextureWithTexCoords(dest, atlas.Texture, item.region);
+            Rect uv = item.region;
+            if (flipX)
+            {
+                uv = new Rect(uv.xMax, uv.y, -uv.width, uv.height);
+            }
+            GUI.DrawTextureWithTexCoords(dest, atlas.Texture, uv);
             GUI.color = previous;
         }
 
@@ -258,6 +264,26 @@ namespace ArchiGungeon.UserInterface
                         if (maxWidth > 0f && line.Width > 0 && line.Width + wTrim > maxWidth)
                         {
                             lines.Add(line); line = new TextLine();
+                        }
+                        // A word wider than the whole line (a file path, say) is broken between letters
+                        if (maxWidth > 0f && wTrim > maxWidth)
+                        {
+                            StringBuilder piece = new StringBuilder();
+                            int pieceWidth = 0;
+                            foreach (char c in word)
+                            {
+                                int a = Advance(c, scale);
+                                if (pieceWidth > 0 && line.Width + pieceWidth + a > maxWidth)
+                                {
+                                    line.Runs.Add(new Run { Text = piece.ToString(), Color = run.Color, Bold = run.Bold });
+                                    line.Width += pieceWidth;
+                                    lines.Add(line); line = new TextLine();
+                                    piece.Length = 0; pieceWidth = 0;
+                                }
+                                piece.Append(c); pieceWidth += a;
+                            }
+                            word = piece.ToString();
+                            w = pieceWidth;
                         }
                         line.Runs.Add(new Run { Text = word, Color = run.Color, Bold = run.Bold });
                         line.Width += w;
