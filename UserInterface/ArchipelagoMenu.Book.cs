@@ -97,6 +97,10 @@ namespace ArchiGungeon.UserInterface
             }
             EndPage();
 
+            if (currentTab == Tab.Items)
+            {
+                BookItemsRightArt();
+            }
             BeginPage(new RectInt(right.x, right.y, right.width, right.height - 20));
             switch (currentTab)
             {
@@ -551,64 +555,114 @@ namespace ArchiGungeon.UserInterface
 
         #region Items
 
-        private string hoveredItemTip = null;
+        private int hoveredItem = -1;
+        private const int ItemBoxW = 20, ItemBoxH = 20, ItemGap = 1;
 
+        // Grid of the Ammonomicon's item boxes, newest first
         private void BookItemsLeft()
         {
             if (!SessionHandler.IsConnected) { BookNotConnected(); return; }
 
             BText($"{receivedItems.Count} received, newest first.", BookMuted, BodyScale);
             BSpace(2);
-            hoveredItemTip = null;
+            hoveredItem = -1;
+
+            int columns = Mathf.Max(1, (int)((areaWidth / P + ItemGap) / (ItemBoxW + ItemGap)));
+            float gridWidth = columns * (ItemBoxW + ItemGap) * P - ItemGap * P;
+            float indent = Mathf.Floor((areaWidth - gridWidth) / 2f / P) * P;
+
             bookLeftScroll = GUILayout.BeginScrollView(bookLeftScroll, GUIStyle.none, GUIStyle.none);
-            int scale = BodyScale;
-            for (int i = receivedItems.Count - 1; i >= 0; i--)
+            int count = receivedItems.Count;
+            int rows = (count + columns - 1) / columns;
+            for (int row = 0; row < rows; row++)
             {
-                ItemInfo item = receivedItems[i];
-                Rect r = GUILayoutUtility.GetRect(areaWidth, BookArt.Font.Line(scale) + P, GUILayout.Width(areaWidth));
-                bool hover = r.Contains(Event.current.mousePosition);
-                if (i == selectedItem || hover)
+                Rect line = GUILayoutUtility.GetRect(areaWidth, (ItemBoxH + ItemGap) * P, GUILayout.Width(areaWidth));
+                for (int col = 0; col < columns; col++)
                 {
-                    Solid(r, new Color(0.35f, 0.25f, 0.2f, i == selectedItem ? 0.22f : 0.12f));
-                }
-                BookArt.Font.Draw(new Rect(r.x + P, r.y + P / 2, r.width - 2 * P, r.height), item.ItemName ?? $"Item {item.ItemId}", BookItemColor(item.Flags), scale, 0, false);
-                if (hover && i < receivedTooltips.Count)
-                {
-                    hoveredItemTip = receivedTooltips[i];
-                }
-                if (GUI.Button(r, GUIContent.none, GUIStyle.none))
-                {
-                    selectedItem = i;
+                    int n = row * columns + col;
+                    if (n >= count) break;
+                    int i = count - 1 - n;
+                    Rect box = new Rect(line.x + indent + col * (ItemBoxW + ItemGap) * P, line.y, ItemBoxW * P, ItemBoxH * P);
+                    bool hover = box.Contains(Event.current.mousePosition);
+                    if (hover) hoveredItem = i;
+                    string sprite = hover || i == selectedItem ? "big_box_page_raised_selected_001" : "big_box_page_raised_001";
+                    BookArt.Sliced(BookArt.Ammonomicon, sprite, box, P, Color.white);
+
+                    Rect inner = new Rect(box.x + 2 * P, box.y + 2 * P, box.width - 4 * P, box.height - 6 * P);
+                    Texture2D icon = i < receivedIcons.Count ? ItemIcons.Get(receivedIcons[i]) : null;
+                    if (icon != null)
+                    {
+                        ItemIcons.Draw(icon, inner, P);
+                    }
+                    else
+                    {
+                        Vector2 q = BookArt.SpriteSize(BookArt.Ammonomicon, "question_mark_001") * P;
+                        BookArt.Sprite(BookArt.Ammonomicon, "question_mark_001", new Rect(inner.x + Mathf.Round((inner.width - q.x) / 2f), inner.y + Mathf.Round((inner.height - q.y) / 2f), q.x, q.y), Color.white);
+                    }
+
+                    if (GUI.Button(box, GUIContent.none, GUIStyle.none))
+                    {
+                        selectedItem = selectedItem == i ? -1 : i;
+                    }
                 }
             }
             GUILayout.EndScrollView();
+        }
+
+        private int ShownItem
+        {
+            get
+            {
+                int i = hoveredItem >= 0 ? hoveredItem : selectedItem;
+                return i >= 0 && i < receivedItems.Count && i < receivedTooltips.Count ? i : -1;
+            }
+        }
+
+        // Ammonomicon entry art on the right page: title banner and the picture of the item. Drawn outside the
+        // page's layout area because the art is the full width of the page.
+        private void BookItemsRightArt()
+        {
+            int i = ShownItem;
+            if (!SessionHandler.IsConnected || i < 0) return;
+
+            string tip = receivedTooltips[i];
+            int newline = tip.IndexOf('\n');
+            string title = newline > 0 ? tip.Substring(0, newline) : tip;
+
+            Rect banner = BookRect(262, 20, 154, 26);
+            BookArt.Sprite(BookArt.Ammonomicon, "item_page_item_filligree_001", banner, Color.white);
+            int titleScale = BookArt.Font.Measure(title, HeadScale, 0f).x <= 120 * P ? HeadScale : BodyScale;
+            BookArt.Font.Draw(banner, title, BookItemColor(receivedItems[i].Flags), titleScale, 1, false, true);
+
+            Rect picture = BookRect(262 + (154 - 115) / 2, 48, 115, 71);
+            BookArt.Sprite(BookArt.Ammonomicon, "Item_Picture_Gungeon_001", picture, Color.white);
+            Texture2D icon = i < receivedIcons.Count ? ItemIcons.Get(receivedIcons[i]) : null;
+            if (icon != null)
+            {
+                // Standing on the pedestal, at its in-game size
+                ItemIcons.Draw(icon, new Rect(picture.x + 7 * P, picture.y + 2 * P, 101 * P, 29 * P), P, true);
+            }
         }
 
         private void BookItemsRight()
         {
             if (!SessionHandler.IsConnected) { return; }
 
-            string tip = hoveredItemTip;
-            if (tip == null && selectedItem >= 0 && selectedItem < receivedTooltips.Count)
-            {
-                tip = receivedTooltips[selectedItem];
-            }
-
-            if (string.IsNullOrEmpty(tip))
+            int i = ShownItem;
+            if (i < 0)
             {
                 BPlate("Item details");
                 BText("Hover over an item on the left page to read about it here. Click one to keep it open.", BookMuted, BodyScale);
                 BSpace(4);
-                BText($"<color=#{Hex(BookGold)}>Gold</color> items are progression, <color=#{Hex(BookBlue)}>blue</color> are useful and <color=#{Hex(BookRed)}>red</color> are traps.", BookInk, BodyScale);
+                BText($"<color=#{Hex(BookGold)}>Gold</color> names are progression, <color=#{Hex(BookBlue)}>blue</color> are useful and <color=#{Hex(BookRed)}>red</color> are traps.", BookInk, BodyScale);
                 return;
             }
 
-            // First line is the item's name; the rest is its description
+            // Below the banner and picture drawn by BookItemsRightArt
+            GUILayout.Space((122 - BookArt.RightPage.y) * P);
+            string tip = receivedTooltips[i];
             int newline = tip.IndexOf('\n');
-            string title = newline > 0 ? tip.Substring(0, newline) : tip;
             string body = newline > 0 ? tip.Substring(newline + 1) : "";
-            BText(title, BookRed, HeadScale);
-            BLine();
             bookRightScroll = GUILayout.BeginScrollView(bookRightScroll, GUIStyle.none, GUIStyle.none);
             BText(body, BookInk, BodyScale);
             GUILayout.EndScrollView();

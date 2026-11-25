@@ -80,6 +80,7 @@ namespace ArchiGungeon.UserInterface
         private string completionText = "";
         private List<ItemInfo> receivedItems = new List<ItemInfo>();
         private List<string> receivedTooltips = new List<string>();
+        private List<int> receivedIcons = new List<int>();
 
         // ---- styles
         private bool stylesBuilt = false;
@@ -181,6 +182,7 @@ namespace ArchiGungeon.UserInterface
         private void Update()
         {
             BookArt.TryInit();
+            ItemIcons.Tick();
 
             if (Time.unscaledTime >= nextDeathScreenCheck)
             {
@@ -657,6 +659,7 @@ namespace ArchiGungeon.UserInterface
 
                 // Copy numbers count each item type in the order received, matching how they're handed out
                 receivedTooltips = new List<string>(receivedItems.Count);
+                receivedIcons = new List<int>(receivedItems.Count);
                 Dictionary<long, int> copies = new Dictionary<long, int>();
                 foreach (ItemInfo item in receivedItems)
                 {
@@ -664,6 +667,7 @@ namespace ArchiGungeon.UserInterface
                     copies.TryGetValue(item.ItemId, out copy);
                     copies[item.ItemId] = copy + 1;
                     receivedTooltips.Add(ItemTooltips.Build(item, copy));
+                    receivedIcons.Add(ItemTooltips.IconFor(item, copy));
                 }
             }
             catch (Exception e)

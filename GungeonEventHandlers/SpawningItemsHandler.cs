@@ -82,7 +82,7 @@ namespace ArchiGungeon.GungeonEventHandlers
         private static readonly Dictionary<int, int> rollsThisRun = new Dictionary<int, int>();
 
         // What each roll gave this run, for the menu's item tooltips. Key: "case|copy".
-        public struct RollResult { public string Name; public string Description; }
+        public struct RollResult { public string Name; public string Description; public int PickupId; }
         private static readonly Dictionary<string, RollResult> resultsThisRun = new Dictionary<string, RollResult>();
         private static string currentRollKey = null;
 
@@ -108,6 +108,7 @@ namespace ArchiGungeon.GungeonEventHandlers
             {
                 Name = ItemTooltips.NameOf(item),
                 Description = ItemTooltips.DescribeGameItem(item),
+                PickupId = item.PickupObjectId,
             };
             currentRollKey = null;
         }

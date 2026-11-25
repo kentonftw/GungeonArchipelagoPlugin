@@ -81,6 +81,107 @@ namespace ArchiGungeon.UserInterface
             { PersistentUpgrades.KeyID, "+1 key at the start of every run." },
         };
 
+        // Game items whose icon stands for an Archipelago item (names as the game's item list knows them;
+        // the first one that exists is used)
+        private static readonly Dictionary<long, string[]> IconItems = new Dictionary<long, string[]>
+        {
+            { 8754100, new[] { "glass_guon_stone" } },
+            { 8754101, new[] { "50_casing", "casing" } },
+            { 8754102, new[] { "key" } },
+            { 8754103, new[] { "blank" } },
+            { 8754104, new[] { "armor" } },
+            { 8754105, new[] { "heart" } },
+            { 8754106, new[] { "ammo" } },
+            { 8754201, new[] { "mimic_gun" } },
+            { 8754204, new[] { "hot_lead" } },
+            { 8754205, new[] { "irradiated_lead" } },
+            { 8754301, new[] { "gnawed_key" } },
+            { 8754302, new[] { "old_crest" } },
+            { 8754303, new[] { "weird_egg" } },
+            { 8754310, new[] { "prime_primer" } },
+            { 8754311, new[] { "arcane_gunpowder" } },
+            { 8754312, new[] { "planar_lead" } },
+            { 8754313, new[] { "obsidian_shell_casing" } },
+            { PersistentUpgrades.MaxHealthID, new[] { "heart_container", "heart" } },
+            { PersistentUpgrades.ArmorID, new[] { "armor" } },
+            { PersistentUpgrades.BlankID, new[] { "blank" } },
+            { PersistentUpgrades.CasingsID, new[] { "50_casing", "casing" } },
+            { PersistentUpgrades.KeyID, new[] { "key" } },
+        };
+        private static readonly Dictionary<string, int> idsByName = new Dictionary<string, int>();
+
+        /// <summary>
+        /// The game item whose icon to show for a received item: what a random-tier item rolled this run, a
+        /// matching game item, the mod's own item for curses and Paradox unlocks, or else the Archipelago item.
+        /// </summary>
+        public static int IconFor(ItemInfo item, int copy)
+        {
+            try
+            {
+                if (RandomTierKinds.ContainsKey(item.ItemId))
+                {
+                    RandomizedByQualityItems.RollResult roll;
+                    if (RandomizedByQualityItems.TryGetRoll((int)(item.ItemId - 8754000), copy, out roll) && roll.PickupId > 0)
+                    {
+                        return roll.PickupId;
+                    }
+                    return APPickUpItem.SpawnItemID;
+                }
+
+                switch (item.ItemId)
+                {
+                    case 8754202: return ReverseCurse.SpawnItemID;
+                    case 8754500: return ReverseCurseReversal.SpawnItemID;
+                    case 8754400: return ArchiGungeon.Character.MarineParadoxItem.SpawnItemID;
+                    case 8754401: return ArchiGungeon.Character.ConvictParadoxItem.SpawnItemID;
+                    case 8754402: return ArchiGungeon.Character.PilotParadoxItem.SpawnItemID;
+                    case 8754403: return ArchiGungeon.Character.HunterParadoxItem.SpawnItemID;
+                    case 8754404: return ArchiGungeon.Character.RobotParadoxItem.SpawnItemID;
+                    case 8754405: return ArchiGungeon.Character.BulletParadoxItem.SpawnItemID;
+                }
+
+                string[] names;
+                if (IconItems.TryGetValue(item.ItemId, out names))
+                {
+                    foreach (string name in names)
+                    {
+                        int id = GameItemId(name);
+                        if (id >= 0)
+                        {
+                            return id;
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return APPickUpItem.SpawnItemID;
+        }
+
+        private static int GameItemId(string name)
+        {
+            int id;
+            if (idsByName.TryGetValue(name, out id))
+            {
+                return id;
+            }
+            id = -1;
+            try
+            {
+                PickupObject pickup = Gungeon.Game.Items[name];
+                if (pickup != null)
+                {
+                    id = pickup.PickupObjectId;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            idsByName[name] = id;
+            return id;
+        }
+
         /// <summary>
         /// Hover text for one received item. copy is which copy of this item type it is (0 = first received),
         /// used to find what a random-tier item rolled this run.

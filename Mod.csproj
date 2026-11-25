@@ -76,6 +76,7 @@
     <Compile Include="UserInterface\ArchipelagoMenu.Book.cs" />
     <Compile Include="UserInterface\BookArt.cs" />
     <Compile Include="UserInterface\ItemTooltips.cs" />
+    <Compile Include="UserInterface\ItemIcons.cs" />
     <Compile Include="UserInterface\UIDump.cs" />
     <Compile Include="Character\ElevatorOperator.cs" />
   </ItemGroup>
